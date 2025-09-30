@@ -38,7 +38,6 @@ body:
         - [ ] 데이터베이스 마이그레이션
         - [ ] 유닛 테스트 및 통합 테스트 작성
         - [ ] 
-      render: markdown
   - type: textarea
     id: related-links
     attributes:
