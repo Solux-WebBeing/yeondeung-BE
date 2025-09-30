@@ -53,9 +53,9 @@ body:
       label: "담당자 (Assignee)"
       description: "이 작업의 주 담당자를 지정해 주세요."
       options:
-        - "담당자 A"
-        - "담당자 B"
-        - "담당자 C"
+        - "곽해림"
+        - "송서현"
+        - "홍서현"
         # 팀 멤버 목록을 여기에 추가하세요.
     validations:
       required: true
