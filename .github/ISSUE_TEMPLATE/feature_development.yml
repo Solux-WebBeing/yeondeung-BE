@@ -27,16 +27,18 @@ body:
         - `Users` 테이블에 `nickname` 컬럼 변경
     validations:
       required: true
-  - type: checkboxes
+  - type: textarea
     id: task-list
     attributes:
       label: "세부 작업 목록 (To-Do List)"
-      description: "이 기능을 완성하기 위해 필요한 세부 작업들을 체크리스트 형식으로 작성해 주세요."
-      options:
-        - label: "API 엔드포인트 개발"
-        - label: "프론트엔드 UI 컴포넌트 구현"
-        - label: "데이터베이스 마이그레이션"
-        - label: "유닛 테스트 및 통합 테스트 작성"
+      description: "이 기능을 완성하기 위해 필요한 세부 작업들을 마크다운 체크리스트 형식으로 자유롭게 작성해 주세요."
+      placeholder: |
+        - [ ] API 엔드포인트 개발
+        - [ ] 프론트엔드 UI 컴포넌트 구현
+        - [ ] 데이터베이스 마이그레이션
+        - [ ] 유닛 테스트 및 통합 테스트 작성
+        - [ ] 
+      render: markdown
   - type: textarea
     id: related-links
     attributes:
