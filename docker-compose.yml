@@ -1,0 +1,51 @@
+version: '3.8' # (이 줄은 삭제해도 됩니다)
+
+services:
+  # 1. MySQL 서비스
+  db:
+    image: mysql:8.0
+    container_name: yeondeung-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+      MYSQL_DATABASE: '${DB_DATABASE}'
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3307:3306" # 호스트의 3307 포트를 컨테이너의 3306 포트에 매핑
+    networks:
+      - yeondeung-net
+    # --- [추가] ---
+    # MySQL이 연결을 받을 준비가 되었는지 10초마다 검사
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  # 2. YEONDEUNG-BE 앱 서비스
+  app:
+    container_name: yeondeung-app
+    build: .
+    ports:
+      - "${PORT}:${PORT}"
+    # --- [수정] ---
+    # 'db'가 단순히 켜지는(started)게 아니라,
+    # 'healthcheck'에 통과(healthy)할 때까지 기다림
+    depends_on:
+      db:
+        condition: service_healthy 
+    # -------------
+    networks:
+      - yeondeung-net
+    environment:
+      DB_HOST: 'db'
+    env_file:
+      - .env
+
+volumes:
+  mysql-data:
+
+networks:
+  yeondeung-net:
+    driver: bridge

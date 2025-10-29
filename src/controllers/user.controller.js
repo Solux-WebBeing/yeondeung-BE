@@ -1,6 +1,7 @@
 const pool = require('../../db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const {success, fail} = require('../util/response.util.js');
 
 // 1. 회원가입
 exports.register = async (req, res) => {
@@ -8,7 +9,7 @@ exports.register = async (req, res) => {
   try {
     const { email, userid, password } = req.body;
     if (!email || !userid || !password) {
-      return res.status(400).json({ error: '모든 필드를 입력해주세요.' });
+      return fail(res, '모든 필드를 입력해주세요.', 400);
     }
 
     const saltRounds = 10;
@@ -17,14 +18,14 @@ exports.register = async (req, res) => {
     connection = await pool.getConnection();
     const sql = 'INSERT INTO users (email, userid, password) VALUES (?, ?, ?)';
     await connection.query(sql, [email, userid, hashedPassword]);
-
-    res.status(201).json({ message: '회원가입이 성공적으로 완료되었습니다.' });
+    
+    return success(res, '회원가입 성공', { email, userid }, 201);
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ error: '이미 사용 중인 이메일 또는 아이디입니다.' });
+      return fail(res, '이미 존재하는 이메일 또는 아이디입니다.', 409);
     }
     console.error('Server Error:', error);
-    res.status(500).json({ error: '서버 에러가 발생했습니다.' });
+    return fail(res, '서버 에러가 발생했습니다.', 500);
   } finally {
     if (connection) connection.release();
   }
@@ -36,7 +37,7 @@ exports.login = async (req, res) => {
   try {
     const { userid, password } = req.body;
     if (!userid || !password) {
-      return res.status(400).json({ error: '아이디와 비밀번호를 모두 입력해주세요.' });
+      return fail(res, '모든 필드를 입력해주세요.', 400);
     }
 
     connection = await pool.getConnection();
@@ -46,16 +47,15 @@ exports.login = async (req, res) => {
     const [users] = await connection.query(sql, [userid]);
 
     if (users.length === 0) {
-      return res.status(401).json({ error: '아이디 또는 비밀번호가 올바르지 않습니다.' });
+      return fail(res, '아이디 또는 비밀번호가 올바르지 않습니다.', 401);
     }
 
     const user = users[0];
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
-      return res.status(401).json({ error: '아이디 또는 비밀번호가 올바르지 않습니다.' });
+      return fail(res, '아이디 또는 비밀번호가 올바르지 않습니다.', 401);
     }
-
     const payload = {
       id: user.id,
       email: user.email,
@@ -66,13 +66,10 @@ exports.login = async (req, res) => {
       expiresIn: '1h',
     });
 
-    res.status(200).json({
-      message: '로그인 성공',
-      token: token,
-    });
+    success(res, '로그인 성공', { token });
   } catch (error) {
     console.error('Server Error:', error);
-    res.status(500).json({ error: '서버 에러가 발생했습니다.' });
+    fail(res, '서버 에러가 발생했습니다.', 500);
   } finally {
     if (connection) connection.release();
   }
@@ -84,6 +81,9 @@ exports.getMyProfile = (req, res) => {
     id: req.user.id,
     userid: req.user.userid
   };
-  res.status(200).send(userInfo);
+  res.success(200).json({
+    message: '내 정보 조회 성공',
+    data: userInfo
+  });
 };
 
