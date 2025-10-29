@@ -9,8 +9,7 @@
 
 2.  이 저장소(repository)를 `git clone` 받습니다.
     ```bash
-    git clone [https://github.com/your-username/yeondeung-BE.git](https://github.com/your-username/yeondeung-BE.git)
-    cd yeondeung-BE
+    git clone https://github.com/Solux-WebBeing/yeondeung-BE.git
     ```
 
 3.  **.env 파일 생성**
@@ -20,7 +19,7 @@
     ```
 
 4.  **.env 파일 수정**
-    방금 생성한 `.env` 파일을 열어, 비어있는 `DB_PASSWORD`와 `JWT_SECRET` 값을 (팀원 간에 공유된) 실제 값으로 채워넣습니다.
+    방금 생성한 `.env` 파일을 열어, 비어있는 `DB_PASSWORD`와 `JWT_SECRET` 값을 (팀원 간에 공유된) 실제 값으로 채워넣습니다. (노션 참고)
 
 5.  **Docker 컨테이너 실행**
     ```bash
