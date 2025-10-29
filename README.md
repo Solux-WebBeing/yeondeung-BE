@@ -25,7 +25,7 @@
 
 5.  **Docker 컨테이너 실행**
     ```bash
-    docker-compose up -d --build
+    docker-compose up -d --build #코드 수정시 빌드 필요 (코드 수정 없이 그냥 확인만 필요하면 옵션 제거)
     ```
 
 6.  완료! 브라우저에서 `http://localhost:8000/api-docs`으로 접속하세요. (swagger에서 api 테스트 가능)
