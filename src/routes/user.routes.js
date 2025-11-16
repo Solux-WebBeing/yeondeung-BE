@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user.controller');
+const { verifyToken } = require('../middlewares/auth.middleware');
 // const authMiddleware = require('../middlewares/auth.middleware');
 
 /**
@@ -172,6 +173,30 @@ router.get('/check-email', userController.checkEmailExists);
 
 /**
  * @swagger
+ * /api/users/check-orgname:
+ *   get:
+ *     summary: 단체명 중복 확인
+ *     description: 이미 등록된 단체명인지 확인합니다.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: org_name
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 중복 확인할 단체명
+ *     responses:
+ *       '200':
+ *         description: 사용 가능한 단체명입니다.
+ *       '400':
+ *         description: 단체명을 입력해주세요.
+ *       '409':
+ *         description: 이미 등록된 단체명입니다.
+ */
+router.get('/check-orgname', userController.checkOrgNameExists);
+
+/**
+ * @swagger
  * /api/users/email/send-verification:
  *   post:
  *     summary: 이메일 인증번호 발송
@@ -273,5 +298,105 @@ router.post('/email/verify-code', userController.verifyEmailCode);
  *         description: '인증 실패 (아이디 또는 비밀번호 오류)'
  */
 router.post('/login', userController.login);
+
+// --- 최초 로그인 추가 정보 설정 ---
+
+/**
+ * @swagger
+ * /api/users/setup/organization:
+ *   post:
+ *     summary: 단체 회원 추가 정보 설정 (최초 로그인 시)
+ *     description: '단체 소개글을 입력하고 최초 로그인 상태를 완료(true)로 변경합니다. (JWT 토큰 필수)'
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [introduction]
+ *             properties:
+ *               introduction:
+ *                 type: string
+ *                 description: '단체 소개글 (50자 이상 200자 이하)'
+ *                 minLength: 50
+ *                 maxLength: 200
+ *                 example: "저희 단체는 비영리 목적으로 설립되어 사회적 약자를 돕고..."
+ *     responses:
+ *       '200':
+ *         description: 단체 정보 설정 완료
+ *       '400':
+ *         description: 글자 수 제한(50~200자) 위반
+ *       '401':
+ *         description: 토큰이 없거나 만료됨
+ */
+router.post('/setup/organization', verifyToken, userController.setupOrganization);
+
+/**
+ * @swagger
+ * /api/users/setup/individual:
+ *   post:
+ *     summary: 개인 회원 추가 정보 설정 (최초 로그인 시)
+ *     description: '관심 분야와 메일링 설정을 입력하고 최초 로그인 상태를 완료(true)로 변경합니다. (JWT 토큰 필수)'
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [interests, mailing_consent]
+ *             properties:
+ *               interests:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: '관심 분야 (최소 1개, 예: ["환경", "인권"])'
+ *               mailing_consent:
+ *                 type: boolean
+ *                 description: '메일링 수신 동의 여부 (true: 정보 입력 필수 / false: 정보 무시 및 null 저장)'
+ *                 example: true
+ *               mailing_days:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: '메일링 수신 요일 (필수 2개, 예: ["월", "목"])'
+ *                 nullable: true
+ *               mailing_time:
+ *                 type: string
+ *                 description: '메일링 수신 시간 (예: "AM 10시", "PM 2시")'
+ *                 example: "PM 2시"
+ *                 nullable: true
+ *     responses:
+ *       '200':
+ *         description: 개인 맞춤 정보 설정 완료
+ *       '400':
+ *         description: 입력값 형식 오류 (요일 개수, 시간 포맷 등)
+ *       '401':
+ *         description: 토큰이 없거나 만료됨
+ */
+router.post('/setup/individual', verifyToken, userController.setupIndividual);
+
+/**
+ * @swagger
+ * /api/users/logout:
+ *   post:
+ *     summary: 로그아웃
+ *     description: '로그아웃 처리를 합니다. (클라이언트에서 저장된 토큰을 삭제해야 함)'
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       '200':
+ *         description: 로그아웃 성공
+ *       '401':
+ *         description: 토큰이 없거나 만료됨
+ */
+router.post('/logout', verifyToken, userController.logout);
+
 
 module.exports = router;

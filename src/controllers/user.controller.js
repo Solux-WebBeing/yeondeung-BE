@@ -69,6 +69,32 @@ exports.checkEmailExists = async (req, res) => {
   }
 };
 
+/**
+ * 2-1. 단체명 중복 확인 (단체 회원가입용)
+ */
+exports.checkOrgNameExists = async (req, res) => {
+  let connection;
+  try {
+    const { org_name } = req.query;
+    if (!org_name) {
+      return fail(res, '단체명을 입력해주세요.', 400);
+    }
+    connection = await pool.getConnection();
+    
+    const sql = 'SELECT 1 FROM organization_profiles WHERE org_name = ?';
+    const [rows] = await connection.query(sql, [org_name]);
+    
+    if (rows.length > 0) {
+      return fail(res, '이미 등록된 단체명입니다.', 409);
+    }
+    return success(res, '사용 가능한 단체명입니다.');
+  } catch (error) {
+    console.error('Server Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
 
 /**
  * 3. 이메일 인증번호 발송 (공통)
@@ -143,7 +169,6 @@ exports.verifyEmailCode = async (req, res) => {
 
 /**
  * 5. 개인 회원가입
- * (수정됨: 이메일 중복 사전 확인 로직 추가)
  */
 exports.registerIndividual = async (req, res) => {
   const { email, userid, password, password_confirm, nickname, email_consent = false } = req.body;
@@ -163,28 +188,26 @@ exports.registerIndividual = async (req, res) => {
   try {
     connection = await pool.getConnection();
     
-    // [사전 확인 1] 이메일 인증 여부 확인
+    // [사전 확인 1] 이메일 인증 여부
     const emailVerifySql = 'SELECT verified FROM email_verifications WHERE email = ? AND verified = true';
     const [verifyRows] = await connection.query(emailVerifySql, [email]);
     if (verifyRows.length === 0) {
       return fail(res, '이메일 인증이 완료되지 않았습니다.', 403);
     }
 
-    // [사전 확인 2] 아이디 중복 확인 (users 테이블)
+    // [사전 확인 2] 아이디 중복
     const userCheckSql = 'SELECT 1 FROM users WHERE userid = ?';
     const [userRows] = await connection.query(userCheckSql, [userid]);
     if (userRows.length > 0) {
       return fail(res, '이미 사용중인 아이디입니다.', 409);
     }
 
-    // --- [사전 확인 3: 추가됨] ---
-    // 이메일 중복 확인 (users 테이블)
+    // [사전 확인 3] 이메일 중복
     const emailCheckSql = 'SELECT 1 FROM users WHERE email = ?';
     const [emailRows] = await connection.query(emailCheckSql, [email]);
     if (emailRows.length > 0) {
         return fail(res, '이미 가입된 이메일입니다.', 409);
     }
-    // ----------------------------
 
     // --- 트랜잭션 시작 ---
     await connection.beginTransaction();
@@ -192,7 +215,6 @@ exports.registerIndividual = async (req, res) => {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
-    // 'has_logged_in' 필드는 DB에서 DEFAULT FALSE로 자동 설정됨
     const userSql = 'INSERT INTO users (user_type, userid, password, email) VALUES (?, ?, ?, ?)';
     const [userInsertResult] = await connection.query(userSql, ['INDIVIDUAL', userid, hashedPassword, email]);
     const newUserId = userInsertResult.insertId;
@@ -206,7 +228,6 @@ exports.registerIndividual = async (req, res) => {
   } catch (error) {
     if (connection) await connection.rollback();
     
-    // [수정] 사전 확인을 했음에도 동시성 문제로 중복이 발생한 경우
     if (error.code === 'ER_DUP_ENTRY') {
       return fail(res, '이미 사용 중인 아이디 또는 이메일입니다.', 409);
     }
@@ -222,7 +243,8 @@ exports.registerIndividual = async (req, res) => {
 
 /**
  * 6. 단체 회원가입
- * (수정됨: 이메일 중복 사전 확인 로직 추가)
+ * approval_status를 'PENDING'으로 설정
+ * 단체명 중복 확인 로직 포함
  */
 exports.registerOrganization = async (req, res) => {
   const { 
@@ -245,26 +267,32 @@ exports.registerOrganization = async (req, res) => {
   try {
     connection = await pool.getConnection();
 
-    // [사전 확인 1] 이메일 인증 여부 확인
+    // [사전 확인 1] 이메일 인증 여부
     const emailVerifySql = 'SELECT verified FROM email_verifications WHERE email = ? AND verified = true';
     const [verifyRows] = await connection.query(emailVerifySql, [email]);
     if (verifyRows.length === 0) {
       return fail(res, '이메일 인증이 완료되지 않았습니다.', 403);
     }
     
-    // [사전 확인 2] 아이디 중복 확인 (users 테이블)
+    // [사전 확인 2] 아이디 중복
     const userCheckSql = 'SELECT 1 FROM users WHERE userid = ?';
     const [userRows] = await connection.query(userCheckSql, [userid]);
     if (userRows.length > 0) {
       return fail(res, '이미 사용중인 아이디입니다.', 409);
     }
 
-    // --- [사전 확인 3: 추가됨] ---
-    // 이메일 중복 확인 (users 테이블)
+    // [사전 확인 3] 이메일 중복
     const emailCheckSql = 'SELECT 1 FROM users WHERE email = ?';
     const [emailRows] = await connection.query(emailCheckSql, [email]);
     if (emailRows.length > 0) {
         return fail(res, '이미 가입된 이메일입니다.', 409);
+    }
+
+    // [사전 확인 4] 단체명 중복 확인 (Safety Net)
+    const orgNameCheckSql = 'SELECT 1 FROM organization_profiles WHERE org_name = ?';
+    const [orgRows] = await connection.query(orgNameCheckSql, [org_name]);
+    if (orgRows.length > 0) {
+        return fail(res, '이미 등록된 단체명입니다.', 409);
     }
     // ----------------------------
 
@@ -274,8 +302,12 @@ exports.registerOrganization = async (req, res) => {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // 'has_logged_in' 필드는 DB에서 DEFAULT FALSE로 자동 설정됨
-    const userSql = 'INSERT INTO users (user_type, userid, password, email) VALUES (?, ?, ?, ?)';
+    // approval_status = 'PENDING' 설정
+    const userSql = `
+      INSERT INTO users (user_type, userid, password, email, approval_status) 
+      VALUES (?, ?, ?, ?, 'PENDING')
+    `;
+    
     const [userInsertResult] = await connection.query(userSql, ['ORGANIZATION', userid, hashedPassword, email]);
     const newUserId = userInsertResult.insertId;
 
@@ -287,13 +319,12 @@ exports.registerOrganization = async (req, res) => {
 
     await connection.commit();
 
-    return success(res, '단체 회원가입 성공', { email, userid, org_name }, 201);
+    return success(res, '단체 회원가입 신청이 완료되었습니다. 관리자 승인 후 로그인이 가능합니다.', { email, userid, org_name }, 201);
   } catch (error) {
     if (connection) await connection.rollback();
     
-    // [수정] 사전 확인을 했음에도 동시성 문제로 중복이 발생한 경우
     if (error.code === 'ER_DUP_ENTRY') {
-      return fail(res, '이미 사용 중인 아이디 또는 이메일입니다.', 409);
+      return fail(res, '이미 사용 중인 정보(아이디, 이메일, 단체명 등)가 있습니다.', 409);
     }
     console.error('Server Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
@@ -303,11 +334,10 @@ exports.registerOrganization = async (req, res) => {
 };
 
 
-// --- 로그인 및 프로필 (수정) ---
+// --- 로그인 및 프로필 ---
 
 /**
  * 7. 로그인 (공통)
- * (has_logged_in 로직 포함)
  */
 exports.login = async (req, res) => {
   let connection;
@@ -319,7 +349,7 @@ exports.login = async (req, res) => {
 
     connection = await pool.getConnection();
     
-    // 1. 공통 users 테이블에서 사용자 조회 (has_logged_in 컬럼 포함)
+    // 1. users 테이블에서 기본 정보 조회
     const sql = 'SELECT * FROM users WHERE userid = ?';
     const [users] = await connection.query(sql, [userid]);
 
@@ -328,41 +358,69 @@ exports.login = async (req, res) => {
     }
 
     const user = users[0];
+    
     // 2. 비밀번호 검증
     const isMatch = await bcrypt.compare(password, user.password);
-
     if (!isMatch) {
       return fail(res, '아이디 또는 비밀번호가 올바르지 않습니다.', 401);
     }
 
-    // --- 최초 로그인 처리 (사용자님 로직: false=최초, true=최초아님) ---
-    // user.has_logged_in이 false이면 (DB 기본값) => 최초 로그인임.
-    const isFirstLogin = (user.has_logged_in === 0 || user.has_logged_in === false);
+    // 3. 닉네임(또는 단체명) 가져오기
+    let nickname = ''; 
 
-    // 만약 최초 로그인(isFirstLogin = true)이라면, DB 값을 true로 업데이트
-    if (isFirstLogin) {
-      const updateSql = 'UPDATE users SET has_logged_in = true WHERE id = ?';
-      // (비동기 처리, 로그인 응답을 기다리게 하지 않음)
-      connection.query(updateSql, [user.id]).catch(err => {
-          console.error("최초 로그인 상태 업데이트 실패:", err);
-      });
+    if (user.user_type === 'INDIVIDUAL') {
+      const [profiles] = await connection.query(
+        'SELECT nickname FROM individual_profiles WHERE user_id = ?', 
+        [user.id]
+      );
+      if (profiles.length > 0) nickname = profiles[0].nickname;
+
+    } else if (user.user_type === 'ORGANIZATION') {
+      const [profiles] = await connection.query(
+        'SELECT org_name FROM organization_profiles WHERE user_id = ?', 
+        [user.id]
+      );
+      
+      // 승인 상태 체크
+      if (user.approval_status === 'PENDING') {
+        return fail(res, '관리자 승인 대기 중인 계정입니다.', 403);
+      }
+      if (user.approval_status === 'REJECTED') {
+        return fail(res, '가입이 거절된 계정입니다. 관리자에게 문의하세요.', 403);
+      }
+      
+      if (profiles.length > 0) nickname = profiles[0].org_name;
     }
-    // ----------------------------
+
+    // --- 최초 로그인 여부 확인 (is_first_login 값 그대로 반환) ---
+    const isFirstLogin = (user.is_first_login === 0 || user.is_first_login === false);
     
-    // 3. JWT 페이로드 생성
+    // 4. JWT 페이로드 생성
     const payload = {
       id: user.id,
+      nickname: nickname, 
       email: user.email,
       userid: user.userid,
       user_type: user.user_type,
-      is_first_login: isFirstLogin, // 최초 로그인 여부 포함 (true/false)
+      is_first_login: isFirstLogin
     };
 
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: '1h', // 1시간 유효
+      expiresIn: '1h',
     });
 
-    success(res, '로그인 성공', { token });
+    console.log('=== 로그인 성공 ===');
+    console.log('ID:', user.userid);
+    console.log('Type:', user.user_type);
+    console.log('Nickname:', nickname); 
+
+    success(res, '로그인 성공', { 
+        token, 
+        nickname: nickname,
+        user_type: user.user_type,
+        is_first_login: isFirstLogin 
+    });
+
   } catch (error) {
     console.error('Server Error:', error);
     fail(res, '서버 에러가 발생했습니다.', 500);
@@ -375,7 +433,6 @@ exports.login = async (req, res) => {
  * 8. 내 정보 보기 (공통)
  */
 exports.getMyProfile = async (req, res) => {
-  // req.user는 인증 미들웨어에서 주입된 JWT 페이로드
   const { id, user_type } = req.user;
   let connection;
 
@@ -385,14 +442,14 @@ exports.getMyProfile = async (req, res) => {
     
     if (user_type === 'INDIVIDUAL') {
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, ip.nickname, ip.email_consent 
+        SELECT u.id, u.userid, u.email, u.user_type, u.role, ip.nickname, ip.email_consent 
         FROM users u
         LEFT JOIN individual_profiles ip ON u.id = ip.user_id
         WHERE u.id = ?
       `;
     } else if (user_type === 'ORGANIZATION') {
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, op.org_name, op.sns_link, op.contact_number, op.address
+        SELECT u.id, u.userid, u.email, u.user_type, u.role, op.org_name, op.sns_link, op.contact_number, op.address
         FROM users u
         LEFT JOIN organization_profiles op ON u.id = op.user_id
         WHERE u.id = ?
@@ -413,5 +470,168 @@ exports.getMyProfile = async (req, res) => {
     return fail(res, '서버 에러가 발생했습니다.', 500);
   } finally {
     if (connection) connection.release();
+  }
+};
+
+
+/**
+ * 9. 단체 회원 최초 정보 설정
+ * - 설정 후 is_first_login = true 변경
+ */
+exports.setupOrganization = async (req, res) => {
+  const { id } = req.user;
+  const { introduction } = req.body;
+  let connection;
+
+  try {
+    if (!introduction || introduction.length < 50 || introduction.length > 200) {
+      return fail(res, '소개글은 50자 이상 200자 이하로 작성해야 합니다.', 400);
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const updateProfileSql = 'UPDATE organization_profiles SET introduction = ? WHERE user_id = ?';
+    const [result] = await connection.query(updateProfileSql, [introduction, id]);
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+      return fail(res, '프로필 정보를 찾을 수 없습니다.', 404);
+    }
+
+    // 설정 완료 시 is_first_login = true
+    const updateUserSql = 'UPDATE users SET is_first_login = true WHERE id = ?';
+    await connection.query(updateUserSql, [id]);
+
+    await connection.commit();
+    return success(res, '단체 정보 설정이 완료되었습니다.');
+
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error('Server Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 10. 개인 회원 최초 정보 설정
+ * - 메일링 동의(mailing_consent)에 따른 분기 처리 및 DB 업데이트
+ * - 설정 후 is_first_login = true 변경
+ */
+exports.setupIndividual = async (req, res) => {
+  const { id } = req.user;
+  // mailing_consent 추가됨
+  const { interests, mailing_consent, mailing_days, mailing_time } = req.body;
+  let connection;
+
+  const ALLOWED_INTERESTS = [
+    '여성', '노동자', '농민', '교육', '복지', '환경', '추모기억',
+    '청소년', '성소수자', '장애인', '범죄사법', '의료', '인권', '동물권'
+  ];
+  const ALLOWED_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+
+  try {
+    // 1. 관심 분야 검증 (공통 필수)
+    if (!Array.isArray(interests) || interests.length === 0) {
+      return fail(res, '관심 분야를 최소 1개 이상 선택해야 합니다.', 400);
+    }
+    const invalidInterest = interests.find(item => !ALLOWED_INTERESTS.includes(item));
+    if (invalidInterest) {
+      return fail(res, `유효하지 않은 관심 분야가 포함되어 있습니다: ${invalidInterest}`, 400);
+    }
+
+    // --- 메일링 서비스 로직 분기 ---
+    let daysJson = null;
+    let dbTime = null;
+
+    if (mailing_consent === true) {
+      // 동의했을 때만 요일/시간 검증
+      if (!Array.isArray(mailing_days) || mailing_days.length !== 2) {
+        return fail(res, '메일링 서비스를 받으시려면 요일 2개를 선택해야 합니다.', 400);
+      }
+      const invalidDay = mailing_days.find(day => !ALLOWED_DAYS.includes(day));
+      if (invalidDay) {
+        return fail(res, '유효하지 않은 요일이 포함되어 있습니다.', 400);
+      }
+
+      const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
+      if (!mailing_time || !timeRegex.test(mailing_time)) {
+        return fail(res, '시간 형식이 올바르지 않습니다. (예: AM 10시, PM 2시)', 400);
+      }
+
+      // 시간 변환
+      const [amPm, timePart] = mailing_time.split(' ');
+      let hour = parseInt(timePart.replace('시', ''));
+
+      if (amPm === 'PM' && hour !== 12) {
+        hour += 12;
+      } else if (amPm === 'AM' && hour === 12) {
+        hour = 0;
+      }
+      dbTime = `${String(hour).padStart(2, '0')}:00:00`;
+      
+      daysJson = JSON.stringify(mailing_days);
+
+    } 
+    // mailing_consent === false 이면 daysJson, dbTime은 null로 유지
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const interestsJson = JSON.stringify(interests);
+
+    // mailing_consent 포함하여 업데이트
+    const updateProfileSql = `
+      UPDATE individual_profiles 
+      SET interests = ?, mailing_consent = ?, mailing_days = ?, mailing_time = ? 
+      WHERE user_id = ?
+    `;
+    
+    const [result] = await connection.query(updateProfileSql, [
+        interestsJson, 
+        mailing_consent, 
+        daysJson, 
+        dbTime, 
+        id
+    ]);
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+      return fail(res, '프로필 정보를 찾을 수 없습니다.', 404);
+    }
+
+    // 설정 완료 시 is_first_login = true
+    const updateUserSql = 'UPDATE users SET is_first_login = true WHERE id = ?';
+    await connection.query(updateUserSql, [id]);
+
+    await connection.commit();
+    return success(res, '개인 맞춤 정보 설정이 완료되었습니다.');
+
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error('Server Error:', error);
+    if (error.code === 'ER_TRUNCATED_WRONG_VALUE') {
+        return fail(res, `DB 시간 저장 오류: ${error.sqlMessage}`, 500);
+    }
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 11. 로그아웃
+ * JWT 특성상 서버에서 토큰을 삭제할 수는 없습니다.
+ * 클라이언트에게 "로그아웃 처리됨" 응답을 보내면, 
+ * 클라이언트가 스스로 로컬 스토리지 등의 토큰을 삭제해야 합니다.
+ */
+exports.logout = async (req, res) => {
+  try {
+    return success(res, '로그아웃 되었습니다.');
+  } catch (error) {
+    console.error('Server Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
   }
 };
