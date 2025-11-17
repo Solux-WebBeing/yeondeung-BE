@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>관리자 대시보드 - 기관 승인</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- 1. 로그인 뷰 (기본) -->
+    <div id="login-view" class="flex items-center justify-center min-h-screen">
+        <div class="w-full max-w-md bg-white p-8 rounded-lg shadow-xl">
+            <h2 class="text-3xl font-bold text-center text-gray-900 mb-8">관리자 로그인</h2>
+            <form id="login-form">
+                <div class="mb-4">
+                    <label for="userid" class="block text-sm font-medium text-gray-700 mb-2">아이디</label>
+                    <input type="text" id="userid" class="w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="admin_userid" required>
+                </div>
+                <div class="mb-6">
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">비밀번호</label>
+                    <input type="password" id="password" class="w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="••••••••" required>
+                </div>
+                <button type="submit" id="login-btn" class="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
+                    로그인
+                </button>
+            </form>
+            <div id="login-message-box" class="hidden p-3 rounded-lg mt-6 text-center text-sm bg-red-100 text-red-700"></div>
+        </div>
+    </div>
+
+    <!-- 2. 대시보드 뷰 (로그인 후 숨김 해제) -->
+    <div id="dashboard-view" class="hidden container mx-auto max-w-7xl p-4 md:p-8">
+        
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">관리자 대시보드</h1>
+            <button id="logout-btn" class="px-5 py-2 bg-red-600 text-white font-semibold rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150">
+                로그아웃
+            </button>
+        </div>
+
+        <!-- 1. JWT 토큰 정보 -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-xl font-semibold mb-4">API 연결 설정</h2>
+            <div class="flex flex-col md:flex-row md:items-center md:space-x-4">
+                <div class="flex-grow mb-4 md:mb-0">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">연결 상태</label>
+                    <div id="token-display" class="w-full px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-mono truncate">
+                        로그인 필요
+                    </div>
+                </div>
+                <button id="fetch-list-btn" class="w-full md:w-auto px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
+                    목록 새로고침
+                </button>
+            </div>
+        </div>
+
+        <!-- 2. 피드백 메시지 박스 -->
+        <div id="message-box" class="hidden p-4 rounded-lg mb-6"></div>
+
+        <!-- 3. 승인 대기 목록 -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-6">기관 회원 승인 대기 목록</h2>
+
+            <!-- 로딩 스피너 -->
+            <div id="loading-spinner" class="hidden text-center py-8">
+                <svg class="animate-spin h-8 w-8 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-lg font-medium text-gray-600">목록을 불러오는 중...</p>
+            </div>
+
+            <!-- 데이터 없음 상태 -->
+            <div id="empty-state" class="hidden text-center py-10">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h3 class="mt-2 text-lg font-medium text-gray-900">완료</h3>
+                <p class="mt-1 text-sm text-gray-500">승인 대기 중인 기관이 없습니다.</p>
+            </div>
+
+            <!-- 승인 대기 테이블 -->
+            <div id="table-container" class="hidden overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">단체명</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">아이디</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">이메일</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">연락처</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">신청일</th>
+                            <th scope="col" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="bg-white divide-y divide-gray-200">
+                        <!-- JS로 데이터가 채워질 영역 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. 거절 사유 입력 모달 (이전과 동일) -->
+    <div id="reject-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div id="modal-overlay" class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                            <svg class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                        </div>
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">가입 거절</h3>
+                            <div class="mt-2">
+                                <p class="text-sm text-gray-500 mb-2">가입 거절 사유를 입력하세요. 이 내용은 사용자에게 이메일로 발송됩니다.</p>
+                                <textarea id="rejection-reason" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="예: 서류 미비, 가입 대상 아님 등"></textarea>
+                                <p id="modal-error" class="hidden text-sm text-red-600 mt-1">거절 사유를 입력해주세요.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button id="confirm-reject-btn" type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        최종 거절
+                    </button>
+                    <button id="cancel-reject-btn" type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        취소
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. JavaScript 로직 -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- [설정] 백엔드 API 기본 URL ---
+            const API_BASE_URL = 'http://localhost:8000/api'; 
+            // ---------------------------------
+
+            let adminToken = ''; // 관리자 JWT 토큰 (로그인 후)
+
+            // --- 뷰(View) DOM 요소 ---
+            const loginView = document.getElementById('login-view');
+            const dashboardView = document.getElementById('dashboard-view');
+
+            // --- 로그인 뷰 DOM 요소 ---
+            const loginForm = document.getElementById('login-form');
+            const useridInput = document.getElementById('userid');
+            const passwordInput = document.getElementById('password');
+            const loginBtn = document.getElementById('login-btn');
+            const loginMessageBox = document.getElementById('login-message-box');
+
+            // --- 대시보드 뷰 DOM 요소 ---
+            const logoutBtn = document.getElementById('logout-btn');
+            const tokenDisplay = document.getElementById('token-display');
+            const fetchListBtn = document.getElementById('fetch-list-btn');
+            const messageBox = document.getElementById('message-box');
+            const loadingSpinner = document.getElementById('loading-spinner');
+            const emptyState = document.getElementById('empty-state');
+            const tableContainer = document.getElementById('table-container');
+            const tableBody = document.getElementById('table-body');
+            
+            // --- 모달 DOM 요소 ---
+            const rejectModal = document.getElementById('reject-modal');
+            const modalOverlay = document.getElementById('modal-overlay');
+            const rejectionReasonInput = document.getElementById('rejection-reason');
+            const confirmRejectBtn = document.getElementById('confirm-reject-btn');
+            const cancelRejectBtn = document.getElementById('cancel-reject-btn');
+            const modalError = document.getElementById('modal-error');
+            
+            // --- 유틸리티: 뷰 전환 ---
+            const showLoginView = () => {
+                loginView.classList.remove('hidden');
+                dashboardView.classList.add('hidden');
+                adminToken = '';
+                useridInput.value = '';
+                passwordInput.value = '';
+                tokenDisplay.textContent = '로그인 필요';
+                tokenDisplay.classList.add('text-gray-600');
+                tokenDisplay.classList.remove('text-green-700');
+            };
+
+            const showDashboardView = () => {
+                loginView.classList.add('hidden');
+                dashboardView.classList.remove('hidden');
+                loginMessageBox.classList.add('hidden');
+                tokenDisplay.textContent = `토큰이 성공적으로 설정되었습니다. (만료: 1시간)`;
+                tokenDisplay.classList.remove('text-gray-600');
+                tokenDisplay.classList.add('text-green-700');
+            };
+
+            // --- 유틸리티: 메시지 박스 ---
+            const showMessage = (message, isError = false, box = messageBox) => {
+                box.textContent = message;
+                box.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-red-100', 'text-red-700');
+                if (isError) {
+                    box.classList.add('bg-red-100', 'text-red-700');
+                } else {
+                    box.classList.add('bg-green-100', 'text-green-700');
+                }
+                box.classList.remove('hidden');
+                
+                // 5초 후 메시지 숨김 (로그인 오류 제외)
+                if (box !== loginMessageBox) {
+                    setTimeout(() => {
+                        box.classList.add('hidden');
+                    }, 5000);
+                }
+            };
+            
+            // --- 1. 로그인 핸들러 ---
+            const handleLogin = async (event) => {
+                event.preventDefault();
+                loginBtn.disabled = true;
+                loginBtn.textContent = '로그인 중...';
+                loginMessageBox.classList.add('hidden');
+
+                try {
+                    const userid = useridInput.value;
+                    const password = passwordInput.value;
+
+                    const response = await fetch(`${API_BASE_URL}/users/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userid, password })
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.message || '로그인에 실패했습니다.');
+                    }
+
+                    // 로그인 성공
+                    adminToken = result.data.token;
+                    showDashboardView();
+                    // 대시보드 진입 시 자동으로 목록 갱신
+                    fetchPendingOrganizations();
+
+                } catch (error) {
+                    showMessage(error.message, true, loginMessageBox);
+                } finally {
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '로그인';
+                }
+            };
+
+            // --- 2. 로그아웃 핸들러 ---
+            const handleLogout = () => {
+                showLoginView();
+                // 테이블 데이터 초기화
+                tableBody.innerHTML = '';
+                tableContainer.classList.add('hidden');
+                emptyState.classList.add('hidden');
+            };
+
+            // --- 3. API 호출: 승인 대기 목록 (기존 로직) ---
+            const fetchPendingOrganizations = async () => {
+                if (!adminToken) {
+                    showMessage('세션이 만료되었거나 로그인이 필요합니다. 다시 로그인해주세요.', true);
+                    showLoginView();
+                    return;
+                }
+
+                loadingSpinner.classList.remove('hidden');
+                tableContainer.classList.add('hidden');
+                emptyState.classList.add('hidden');
+                messageBox.classList.add('hidden'); // 이전 메시지 숨김
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}/admin/pending-organizations`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${adminToken}`
+                        }
+                    });
+
+                    // [중요] 관리자 권한 확인
+                    if (response.status === 401 || response.status === 403) {
+                        throw new Error('로그인에 성공했으나, 관리자 권한이 없습니다. (API 접근 거부)');
+                    }
+                    if (!response.ok) {
+                        throw new Error('서버에서 목록을 불러오는 데 실패했습니다.');
+                    }
+
+                    const result = await response.json();
+                    
+                    if (result.success && result.data.length > 0) {
+                        renderTable(result.data);
+                        tableContainer.classList.remove('hidden');
+                    } else {
+                        emptyState.classList.remove('hidden');
+                    }
+
+                } catch (error) {
+                    showMessage(error.message, true);
+                    // 관리자 권한이 없는 경우, 목록 대신 에러를 띄우고 로그아웃 처리
+                    if (error.message.includes('관리자 권한')) {
+                        setTimeout(handleLogout, 3000);
+                    } else {
+                        emptyState.classList.remove('hidden'); // 일반 에러 시에도 "없음"으로 표시
+                    }
+                } finally {
+                    loadingSpinner.classList.add('hidden');
+                }
+            };
+
+            // --- 4. 테이블 렌더링 (기존 로직) ---
+            const renderTable = (orgs) => {
+                tableBody.innerHTML = ''; // 테이블 비우기
+                orgs.forEach(org => {
+                    const tr = document.createElement('tr');
+                    tr.classList.add('hover:bg-gray-50');
+                    
+                    const formattedDate = new Date(org.created_at).toISOString().split('T')[0];
+
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm font-medium text-gray-900">${org.org_name}</div>
+                            <div class="text-sm text-gray-500">ID: ${org.id}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${org.userid}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${org.email}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${org.contact_number}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${formattedDate}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                            <button data-id="${org.id}" data-name="${org.org_name}" class="approve-btn text-white bg-green-600 hover:bg-green-700 px-3 py-1 rounded-md shadow-sm transition duration-150">승인</button>
+                            <button data-id="${org.id}" data-name="${org.org_name}" class="reject-btn text-white bg-red-600 hover:bg-red-700 px-3 py-1 rounded-md shadow-sm ml-2 transition duration-150">거절</button>
+                        </td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+            };
+
+            // --- 5. API 호출: 승인/거절 (기존 로직) ---
+            const handleApprove = async (userId, orgName, button) => {
+                if (!confirm(`'${orgName}'(ID: ${userId})의 가입을 승인하시겠습니까?`)) {
+                    return;
+                }
+                
+                button.disabled = true;
+                button.textContent = '처리 중...';
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/admin/approve-organization`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${adminToken}`
+                        },
+                        body: JSON.stringify({ userId: Number(userId) })
+                    });
+                    
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message);
+
+                    showMessage(`'${orgName}'의 가입이 성공적으로 승인되었습니다.`, false);
+                    fetchPendingOrganizations(); // 목록 자동 새로고침
+
+                } catch (error) {
+                    showMessage(error.message, true);
+                    button.disabled = false;
+                    button.textContent = '승인';
+                }
+            };
+
+            // --- 6. 거절 모달 로직 (기존 로직) ---
+            let currentRejectUserId = null;
+            let currentRejectOrgName = null;
+            let currentRejectButton = null;
+
+            const openRejectModal = (userId, orgName, button) => {
+                currentRejectUserId = userId;
+                currentRejectOrgName = orgName;
+                currentRejectButton = button;
+                rejectionReasonInput.value = ''; // 모달 초기화
+                modalError.classList.add('hidden');
+                rejectModal.classList.remove('hidden');
+                document.getElementById('modal-title').textContent = `'${orgName}' 가입 거절`;
+            };
+
+            const closeRejectModal = () => {
+                rejectModal.classList.add('hidden');
+            };
+
+            const handleRejectSubmit = async () => {
+                const rejectionReason = rejectionReasonInput.value.trim();
+                if (!rejectionReason) {
+                    modalError.classList.remove('hidden');
+                    return;
+                }
+
+                modalError.classList.add('hidden');
+                confirmRejectBtn.disabled = true;
+                confirmRejectBtn.textContent = '처리 중...';
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}/admin/reject-organization`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${adminToken}`
+                        },
+                        body: JSON.stringify({ 
+                            userId: Number(currentRejectUserId), 
+                            rejectionReason: rejectionReason 
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message);
+
+                    showMessage(`'${currentRejectOrgName}'의 가입이 거절 처리되었습니다.`, false);
+                    closeRejectModal();
+                    fetchPendingOrganizations(); // 목록 자동 새로고침
+
+                } catch (error) {
+                    showMessage(error.message, true);
+                } finally {
+                    confirmRejectBtn.disabled = false;
+                    confirmRejectBtn.textContent = '최종 거절';
+                    // 실패 시 버튼 원상복구 (성공 시에는 목록 새로고침으로 버튼이 사라짐)
+                    if (currentRejectButton) {
+                        currentRejectButton.disabled = false;
+                        currentRejectButton.textContent = '거절';
+                    }
+                }
+            };
+
+            // --- 7. 이벤트 리스너 바인딩 ---
+            loginForm.addEventListener('submit', handleLogin);
+            logoutBtn.addEventListener('click', handleLogout);
+            fetchListBtn.addEventListener('click', fetchPendingOrganizations);
+
+            // 모달 버튼
+            cancelRejectBtn.addEventListener('click', closeRejectModal);
+            modalOverlay.addEventListener('click', closeRejectModal);
+            confirmRejectBtn.addEventListener('click', handleRejectSubmit);
+
+            // 테이블 내 동적 버튼 (이벤트 위임)
+            tableBody.addEventListener('click', (event) => {
+                const target = event.target;
+                const userId = target.dataset.id;
+                const orgName = target.dataset.name;
+
+                if (target.classList.contains('approve-btn')) {
+                    handleApprove(userId, orgName, target);
+                }
+                if (target.classList.contains('reject-btn')) {
+                    openRejectModal(userId, orgName, target);
+                }
+            });
+
+            // --- 초기 상태 ---
+            showLoginView();
+        });
+    </script>
+</body>
+</html>
