@@ -32,8 +32,10 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 const userRoutes = require('./src/routes/user.routes');
 const adminRoutes = require('./src/routes/admin.routes'); 
+const boardRoutes = require('./src/routes/board.routes');
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes); // admin 라우터 연결
+app.use('/api/boards', boardRoutes);
 
 // 7. 서버 실행
 app.listen(port, () => {
