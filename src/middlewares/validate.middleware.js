@@ -39,7 +39,7 @@ async function validateBoardCreate(req, res, next) {
     if (requiresLink && link) {
       // 크롤링
       let crawledText = null;
-      const crawlResult = await crawlUrl(link);
+      const crawlResult = await crawlUrl(link, domainInfo);
 
       if (crawlResult.success) {
         crawledText = crawlResult.text;

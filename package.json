@@ -22,7 +22,9 @@
   "homepage": "https://github.com/yeon-deung/yeondeung-BE#readme",
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
+    "cheerio": "^1.1.2",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
