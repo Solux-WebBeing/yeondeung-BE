@@ -16,7 +16,6 @@ CREATE TABLE users (
     password VARCHAR(255) NOT NULL COMMENT '해시된 비밀번호',
     email VARCHAR(255) NOT NULL UNIQUE COMMENT '이메일 (개인/단체 공식)',
     
-    -- [추가] 스크린샷에 있었으나 이번 텍스트에서 빠진 부분 보강
     role ENUM('USER', 'ADMIN') DEFAULT 'USER' COMMENT '권한',
     
     -- [통합] ALTER로 추가했던 컬럼들을 여기로 합침
@@ -33,10 +32,9 @@ CREATE TABLE individual_profiles (
     nickname VARCHAR(100) NOT NULL COMMENT '닉네임',
     email_consent BOOLEAN DEFAULT FALSE COMMENT '이메일 수신 동의 여부',
     
-    -- 개인 회원 추가 정보 (이전 대화 내용 반영, 필요 시 주석 해제)
-    -- interests TEXT COMMENT '관심사',
-    -- mailing_days VARCHAR(50) COMMENT '메일링 요일',
-    -- mailing_time TIME COMMENT '메일링 시간',
+    interests TEXT COMMENT '관심사',
+    mailing_days VARCHAR(50) COMMENT '메일링 요일',
+    mailing_time TIME COMMENT '메일링 시간',
 
     CONSTRAINT fk_individual_user 
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -67,7 +65,6 @@ CREATE TABLE email_verifications (
     expires_at TIMESTAMP NOT NULL COMMENT '인증번호 만료 시간',
     verified BOOLEAN DEFAULT FALSE COMMENT '인증 성공 여부'
 ) COMMENT '이메일 인증번호 관리';
-
 
 -- 외래 키 검사 재활성화
 SET FOREIGN_KEY_CHECKS = 1;
