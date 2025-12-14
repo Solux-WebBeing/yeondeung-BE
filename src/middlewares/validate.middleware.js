@@ -79,3 +79,50 @@ async function validateBoardCreate(req, res, next) {
 module.exports = {
   validateBoardCreate
 };
+
+/**
+ * [TEST MODE] 게시글 등록 시 검사 미들웨어 (AI/크롤링 스킵)
+ * 무조건 검증을 통과시킵니다.
+ */
+/*
+const responseUtil = require('../util/response.util');
+
+async function validateBoardCreate(req, res, next) {
+  try {
+    console.log('\n==================================================');
+    console.log('🚀 [TEST MODE] AI 검사 및 크롤링을 건너뜁니다.');
+    console.log('==================================================\n');
+
+    const { participation_type, link } = req.body;
+
+    // 1. 필수값 체크 (기본적인 것만 수행)
+    if (!req.body.topic || !req.body.content) {
+      return responseUtil.fail(res, '제목과 내용은 필수 입력 항목입니다.', 400);
+    }
+
+    // 2. 링크 필수 여부 체크
+    const requiresLink = ['서명', '청원', '탄원'].includes(participation_type);
+    if (requiresLink && !link) {
+      return responseUtil.fail(res, '청원/서명/탄원 링크를 입력해야 게시글을 등록할 수 있습니다', 400);
+    }
+
+    // 3. [핵심] 실제 AI 검사 대신 가짜(Mock) 데이터 주입
+    // 컨트롤러가 에러 없이 작동하도록 필요한 데이터를 채워줍니다.
+    req.validatedData = {
+        domainInfo: { site_name: '테스트사이트' }, // 가짜 도메인 정보
+        aiVerified: true // "AI 검사 통과함"으로 설정
+    };
+
+    // 4. 다음 단계(Controller)로 이동
+    next();
+
+  } catch (error) {
+    console.error('[⚠️Validation 오류]', error);
+    return responseUtil.fail(res, '미들웨어 오류가 발생했습니다', 500);
+  }
+}
+
+module.exports = {
+  validateBoardCreate
+};
+*/
