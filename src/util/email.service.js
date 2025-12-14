@@ -180,12 +180,6 @@ module.exports = {
 };
 
 // 이메일 간편 테스트 용
-// email.service.js
-// const nodemailer = require('nodemailer'); // 테스트 모드에서는 잠시 주석 처리
-
-// 1. Nodemailer Transporter 설정 (테스트 모드이므로 주석 처리)
-
-// --- 공통 스타일 상수 (나중에 리얼 모드 전환 시 사용) ---
 /*
 const BRAND_COLOR = '#FF7972';
 const TEXT_COLOR = '#333333';
@@ -198,39 +192,18 @@ const CONTAINER_STYLE = `
   border-radius: 12px; 
   background-color: #ffffff;
 `;
-*/
 
-/**
- * 1. 인증번호 이메일 발송 (TEST MODE)
- * 실제 발송하지 않고 콘솔에 로그만 찍습니다.
- */
-/*
 const sendVerificationEmail = async (toEmail, code) => {
-  // 실제 발송 로직을 주석 처리하고, 로그만 출력합니다.
   console.log('\n==================================================');
   console.log('📬 [TEST MODE] 이메일 발송 시뮬레이션 (인증번호)');
   console.log(`➡ 받는 사람: ${toEmail}`);
-  console.log(`➡ 인증 번호: ${code}`); // <--- 이 번호를 복사해서 쓰세요!
+  console.log(`➡ 인증 번호: ${code}`);
   console.log('==================================================\n');
 
-  // HTML 템플릿 코드는 나중에 사용하기 위해 남겨두되 실행되지 않게 합니다.
-  /*
-  const mailOptions = {
-    from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
-    to: toEmail,
-    subject: '[연등] 이메일 인증번호 안내',
-    html: `... (생략) ...`
-  };
-  await transporter.sendMail(mailOptions);
-  */
-/*
-  return true; // 에러 없이 성공으로 처리
+  return true;
 };
 
-/**
- * 2. 가입 승인 이메일 발송 (TEST MODE)
- */
-/*
+
 const sendApprovalEmail = async (toEmail, orgName) => {
   console.log('\n==================================================');
   console.log('📬 [TEST MODE] 이메일 발송 시뮬레이션 (가입 승인)');
@@ -241,10 +214,6 @@ const sendApprovalEmail = async (toEmail, orgName) => {
   return true;
 };
 
-/**
- * 3. 가입 반려(거절) 이메일 발송 (TEST MODE)
- */
-/*
 const sendRejectionEmail = async (toEmail, orgName, rejectionReason) => {
   console.log('\n==================================================');
   console.log('📬 [TEST MODE] 이메일 발송 시뮬레이션 (가입 반려)');

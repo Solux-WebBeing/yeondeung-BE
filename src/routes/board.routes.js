@@ -44,7 +44,7 @@ const { validateBoardCreate } = require('../middlewares/validate.middleware');
  *               content:
  *                 type: string
  *                 description: '본문 (공백 제외 50자 이상)'
- *                 example: '이 게시글은 환경 보호를 위한 서명 운동입니다. 많은 참여 부탁드립니다...'
+ *                 example: '이 게시글은 환경 보호를 위한 서명 운동입니다. 많은 참여 부탁드립니다. 많은 참여 부탁드립니다. 많은 참여 부탁드립니다. 많은 참여 부탁드립니다.'
  *               start_date:
  *                 type: string
  *                 format: date-time
@@ -96,5 +96,135 @@ const { validateBoardCreate } = require('../middlewares/validate.middleware');
  *         description: 서버 에러
  */
 router.post('/', verifyToken, validateBoardCreate, boardController.createPost);
+
+/**
+ * @swagger
+ * /api/boards/{id}:
+ *   put:
+ *     summary: 게시글 수정
+ *     description: 본인이 작성한 게시글을 수정합니다.
+ *     tags: [Board]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: 게시글 ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               participation_type:
+ *                 type: string
+ *               topic:
+ *                 type: string
+ *               content:
+ *                 type: string
+ *               start_date:
+ *                 type: string
+ *               end_date:
+ *                 type: string
+ *               link:
+ *                 type: string
+ *               region:
+ *                 type: string
+ *               district:
+ *                 type: string
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       '200':
+ *         description: 게시글이 수정되었습니다.
+ *       '400':
+ *         description: 권한 없음 또는 유효성 검사 실패
+ */
+router.put('/:id', verifyToken, boardController.updatePost);
+
+/**
+ * @swagger
+ * /api/boards/{id}:
+ *   delete:
+ *     summary: 게시글 삭제
+ *     description: 본인이 작성한 게시글을 삭제합니다.
+ *     tags: [Board]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       '200':
+ *         description: 게시글이 삭제되었습니다.
+ *       '400':
+ *         description: 삭제 실패 (권한 없음 등)
+ */
+router.delete('/:id', verifyToken, boardController.deletePost);
+
+/**
+ * @swagger
+ * /api/boards/{id}/report:
+ *   post:
+ *     summary: 게시글 신고
+ *     description: 부적절한 게시글을 신고합니다. (중복 신고 불가, 10자 이상)
+ *     tags: [Board]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - reason
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 description: 신고 사유 (10자 이상)
+ *                 example: "이 게시글은 부적절한 내용을 포함하고 있습니다."
+ *     responses:
+ *       '200':
+ *         description: 신고가 접수되었습니다.
+ *       '400':
+ *         description: 신고 사유 미입력 (10자 미만)
+ *       '409':
+ *         description: 이미 신고하신 게시글입니다.
+ */
+router.post('/:id/report', verifyToken, boardController.reportPost);
+
+/**
+ * @swagger
+ * /api/boards/{id}/share:
+ *   get:
+ *     summary: 게시글 공유 링크 조회
+ *     tags: [Board]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       '200':
+ *         description: 공유 링크 반환 성공
+ */
+router.get('/:id/share', boardController.sharePost);
 
 module.exports = router;
