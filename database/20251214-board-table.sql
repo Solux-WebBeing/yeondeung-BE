@@ -12,7 +12,8 @@ CREATE TABLE boards (
     user_id BIGINT NOT NULL,
     
     participation_type VARCHAR(50) NOT NULL,
-    topic VARCHAR(200) NOT NULL,
+    title VARCHAR(255) NOT NULL COMMENT '게시글 제목',
+    topics VARCHAR(200) NOT NULL COMMENT '의제',
     is_verified BOOLEAN DEFAULT FALSE,
     start_date DATETIME,
     end_date DATETIME,

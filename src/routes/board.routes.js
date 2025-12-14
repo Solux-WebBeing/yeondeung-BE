@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const boardController = require('../controllers/board.controller');
-const { verifyToken } = require('../middlewares/auth.middleware');
+const { verifyToken, verifyTokenWithMsg, verifyTokenOptional } = require('../middlewares/auth.middleware');
 const { validateBoardCreate } = require('../middlewares/validate.middleware');
 
 /**
@@ -28,7 +28,8 @@ const { validateBoardCreate } = require('../middlewares/validate.middleware');
  *             type: object
  *             required:
  *               - participation_type
- *               - topic
+ *               - title
+ *               - topics
  *               - content
  *               - start_date
  *               - end_date
@@ -37,7 +38,11 @@ const { validateBoardCreate } = require('../middlewares/validate.middleware');
  *                 type: string
  *                 description: '참여 방식 (집회, 행사, 서명, 청원, 탄원)'
  *                 example: '서명'
- *               topic:
+ *               title:
+ *                 type: string
+ *                 description: '게시글 제목'
+ *                 example: '강남역 환경 정화 활동 모집'
+ *               topics:
  *                 type: string
  *                 description: '의제 (콤마로 구분, 최대 2개)'
  *                 example: '환경,인권'
@@ -122,7 +127,11 @@ router.post('/', verifyToken, validateBoardCreate, boardController.createPost);
  *             properties:
  *               participation_type:
  *                 type: string
- *               topic:
+ *               title:
+ *                 type: string
+ *                 description: '게시글 제목'
+ *                 example: '강남역 환경 정화 활동 모집'
+ *               topics:
  *                 type: string
  *               content:
  *                 type: string
@@ -207,7 +216,7 @@ router.delete('/:id', verifyToken, boardController.deletePost);
  *       '409':
  *         description: 이미 신고하신 게시글입니다.
  */
-router.post('/:id/report', verifyToken, boardController.reportPost);
+router.post('/:id/report', verifyTokenWithMsg('로그인 후 신고할 수 있습니다'), boardController.reportPost);
 
 /**
  * @swagger
@@ -226,5 +235,64 @@ router.post('/:id/report', verifyToken, boardController.reportPost);
  *         description: 공유 링크 반환 성공
  */
 router.get('/:id/share', boardController.sharePost);
+
+/**
+ * @swagger
+ * /api/boards/{id}:
+ *   get:
+ *     summary: 게시글 상세 조회 (응원 정보 포함)
+ *     description: 비회원도 조회 가능하며, 로그인 시 본인의 응원 여부(is_cheered)를 함께 반환합니다.
+ *     tags: [Board]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: 게시글 ID
+ *     responses:
+ *       '200':
+ *         description: 조회 성공 (cheer_count, is_cheered 포함)
+ *       '404':
+ *         description: 게시글을 찾을 수 없음
+ */
+router.get('/:id', verifyTokenOptional, boardController.getBoardDetail);
+
+/**
+ * @swagger
+ * /api/boards/{id}/cheer:
+ *   post:
+ *     summary: 응원봉 클릭 (토글)
+ *     description: 게시글에 응원을 보내거나 취소합니다. (로그인 필수)
+ *     tags: [Board]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: 게시글 ID
+ *     responses:
+ *       '200':
+ *         description: 처리 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 isCheered:
+ *                   type: boolean
+ *                   description: true(응원됨), false(취소됨)
+ *                 cheerCount:
+ *                   type: integer
+ *                   description: 변경된 총 응원 수
+ */
+router.post('/:id/cheer', verifyTokenWithMsg('로그인 후 응원할 수 있습니다'), boardController.toggleCheer);
 
 module.exports = router;

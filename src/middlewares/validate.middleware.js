@@ -9,11 +9,12 @@ const responseUtil = require('../util/response.util');
  */
 async function validateBoardCreate(req, res, next) {
   try {
-    const { topic: title, content, link, participation_type } = req.body;
+    const { title, topics, content, link, participation_type } = req.body;
+    // 주제를 title로, 의제를 topics로 변경함에 따라 해당 코드 또한 변경
 
     // 1. 기본 필드 검증
-    if (!title || !content) {
-      return responseUtil.fail(res, '제목과 내용은 필수 입력 항목입니다.', 400);
+    if (!title || !topics || !content) { // 위와 같은 이유로 변경
+      return responseUtil.fail(res, '제목, 의제, 내용은 필수 입력 항목입니다.', 400);
     }
 
     // 2. 링크가 없는 경우
@@ -49,7 +50,7 @@ async function validateBoardCreate(req, res, next) {
       }
 
       // AI 검사
-      const aiValidation = await ai_validate({title, content, link, crawledText, boardId: null});
+      const aiValidation = await ai_validate({title: title, content, link, crawledText, boardId: null});  // 위와 같은 이유로 변경
 
       if (!aiValidation.pass) {
         return responseUtil.fail(
@@ -96,7 +97,7 @@ async function validateBoardCreate(req, res, next) {
     const { participation_type, link } = req.body;
 
     // 1. 필수값 체크 (기본적인 것만 수행)
-    if (!req.body.topic || !req.body.content) {
+    if (!req.body.title || !req.body.content) {
       return responseUtil.fail(res, '제목과 내용은 필수 입력 항목입니다.', 400);
     }
 

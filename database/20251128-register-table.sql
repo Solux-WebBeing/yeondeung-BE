@@ -52,7 +52,7 @@ CREATE TABLE organization_profiles (
     address VARCHAR(255) NOT NULL COMMENT '주소',
     
     -- 단체 회원 추가 정보 (이전 대화 내용 반영)
-    -- introduction TEXT COMMENT '소개글',
+    introduction TEXT COMMENT '소개글',
 
     CONSTRAINT fk_organization_user 
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
