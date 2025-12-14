@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const boardController = require('../controllers/board.controller');
+const { validateBoardCreate } = require('../middlewares/validate.middleware');
 
 /**
  * @swagger
@@ -13,7 +14,7 @@ const boardController = require('../controllers/board.controller');
  * @swagger
  * /api/boards:
  *   post:
- *     summary: 게시글 생성
+ *     summary: 게시글 생성 & 검증
  *     tags: [Board]
  *     requestBody:
  *         required: true
@@ -39,6 +40,9 @@ const boardController = require('../controllers/board.controller');
  *                         content:
  *                             type: string
  *                             description: 본문
+ *                         link:
+ *                             type: string
+ *                             description: 청원/서명/탄원 링크
  *                         start_date:
  *                             type: string
  *                             format: date-time
@@ -50,9 +54,11 @@ const boardController = require('../controllers/board.controller');
  *     responses:
  *       '201':
  *          description: 게시글 생성 성공
+ *       '400':
+ *          description: 검증 실패
  *       '500':
  *          description: 서버 에러
  */
-router.post('/', boardController.createPost);
+router.post('/', validateBoardCreate, boardController.createPost);
 
 module.exports = router;
