@@ -7,9 +7,6 @@ DROP TABLE IF EXISTS individual_profiles;
 DROP TABLE IF EXISTS organization_profiles;
 DROP TABLE IF EXISTS users;
 
--- 외래 키 검사 재활성화
-SET FOREIGN_KEY_CHECKS = 1;
-
 
 -- 2. Users 테이블 (공통 사용자) - ALTER 내용 통합됨
 CREATE TABLE users (
@@ -70,3 +67,5 @@ CREATE TABLE email_verifications (
     verified BOOLEAN DEFAULT FALSE COMMENT '인증 성공 여부'
 ) COMMENT '이메일 인증번호 관리';
 
+-- 외래 키 검사 재활성화
+SET FOREIGN_KEY_CHECKS = 1;

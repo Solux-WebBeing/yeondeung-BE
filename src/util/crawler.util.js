@@ -67,7 +67,8 @@ const pickcrawler = {
   '청원24': crawl청원24,
   '구글 폼': crawl구글폼,
   '구글 폼(단축주소)': crawl구글폼,
-  '국회입법예고': crawl입법
+  '국회입법예고': crawl입법,
+  '국회전자청원': crawl입법
 };
 
 async function crawlUrl(url, domainInfo = null) {
