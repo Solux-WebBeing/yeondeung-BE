@@ -5,5 +5,20 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS boards (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    participation_type VARCHAR(50) NOT NULL,
+    topic VARCHAR(200) NOT NULL,
+    is_verified BOOLEAN DEFAULT FALSE,
+    start_date DATETIME,
+    end_date DATETIME,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- (필요하면) 다른 테이블 생성 쿼리들도 추가...
 -- CREATE TABLE posts (...);

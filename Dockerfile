@@ -1,5 +1,5 @@
 # 1. 베이스 이미지 선택 (Node.js 18 버전 사용 예시)
-FROM node:18-alpine
+FROM node:20-alpine
 
 # 2. 앱 디렉터리 생성 및 작업 폴더로 지정
 WORKDIR /usr/src/app
