@@ -32,6 +32,7 @@ CREATE TABLE individual_profiles (
     nickname VARCHAR(100) NOT NULL COMMENT '닉네임',
     email_consent BOOLEAN DEFAULT FALSE COMMENT '이메일 수신 동의 여부',
     
+    -- 개인 회원 추가 정보 (이전 대화 내용 반영, 필요 시 주석 해제)
     interests TEXT COMMENT '관심사',
     mailing_days VARCHAR(50) COMMENT '메일링 요일',
     mailing_time TIME COMMENT '메일링 시간',
