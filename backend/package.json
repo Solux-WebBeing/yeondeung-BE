@@ -1,0 +1,43 @@
+{
+  "name": "yeondeung-be",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node app.js",
+    "es:init": "node init-es.js",
+    "es:sync": "node sync-es.js",
+    "dev": "nodemon app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yeon-deung/yeondeung-BE.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/yeon-deung/yeondeung-BE/issues"
+  },
+  "homepage": "https://github.com/yeon-deung/yeondeung-BE#readme",
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.19.1",
+    "@google/generative-ai": "^0.21.0",
+    "axios": "^1.13.2",
+    "bcrypt": "^6.0.0",
+    "cheerio": "^1.1.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.16.0",
+    "nodemailer": "^7.0.10",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "validator": "^13.15.23"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

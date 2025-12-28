@@ -1,5 +1,3 @@
-version: '3.8' # (이 줄은 삭제해도 됩니다)
-
 services:
   # 1. MySQL 서비스
   db:
@@ -12,40 +10,68 @@ services:
       - mysql-data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "3307:3306" # 호스트의 3307 포트를 컨테이너의 3306 포트에 매핑
+      - "3307:3306"
     networks:
       - yeondeung-net
-    # --- [추가] ---
-    # MySQL이 연결을 받을 준비가 되었는지 10초마다 검사
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+
   # 2. YEONDEUNG-BE 앱 서비스
   app:
     container_name: yeondeung-app
-    build: .
+    build: ./backend
     ports:
       - "${PORT}:${PORT}"
-    # --- [수정] ---
-    # 'db'가 단순히 켜지는(started)게 아니라,
-    # 'healthcheck'에 통과(healthy)할 때까지 기다림
     depends_on:
       db:
-        condition: service_healthy 
-    # -------------
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
     networks:
       - yeondeung-net
+      - elk-net  # [중요] Elasticsearch와 통신하기 위해 추가
     environment:
       DB_HOST: 'db'
+      ELASTICSEARCH_NODE: 'http://elasticsearch:9200' # 앱에서 참조할 주소
     env_file:
       - .env
+
+  # 3. Elasticsearch (Nori 플러그인 포함 빌드)
+  elasticsearch:
+    build: ./elasticsearch
+    container_name: elasticsearch
+    environment:
+      - node.name=elasticsearch
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    networks:
+      - elk-net
+
+  # 4. Kibana
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.2
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - elk-net
 
 volumes:
   mysql-data:
 
 networks:
+  elk-net:
+    driver: bridge
   yeondeung-net:
     driver: bridge
