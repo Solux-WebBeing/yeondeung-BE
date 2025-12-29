@@ -14,7 +14,6 @@ INSERT INTO allowed_domains (site_name, domain_pattern, detail_page_pattern) VAL
 ('국회전자청원', 'https://petitions.assembly.go.kr/*', 'https://petitions.assembly.go.kr/proceed/onGoingAll/*'),
 ('국회입법예고', 'https://pal.assembly.go.kr/*', 'https://pal.assembly.go.kr/napal/lgsltpa/lgsltpaOngoing/*');
 
-
 -- boards 테이블에 link, AI검사 추가
 ALTER TABLE boards
     ADD COLUMN link VARCHAR(500),

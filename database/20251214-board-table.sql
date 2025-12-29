@@ -45,3 +45,5 @@ CREATE TABLE board_images (
 
 -- 외래 키 검사 재활성화
 SET FOREIGN_KEY_CHECKS = 1;
+
+select * from boards;
