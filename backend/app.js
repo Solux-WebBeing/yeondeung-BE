@@ -35,11 +35,13 @@ const userRoutes = require('./src/routes/user.routes');
 const adminRoutes = require('./src/routes/admin.routes'); 
 const boardRoutes = require('./src/routes/board.routes');
 const searchRoutes = require('./src/routes/search.routes');
+const mainRouter = require('./src/routes/main.routes');
 
 app.use('/api/search', searchRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/boards', boardRoutes);
+app.use('/api/main', mainRouter);
 
 // 7. 서버 실행
 app.listen(port, () => {
