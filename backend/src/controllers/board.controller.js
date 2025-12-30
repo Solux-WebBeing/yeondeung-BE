@@ -1,4 +1,5 @@
 const pool = require('../../db');
+const redis = require('../config/redis.client');
 const { success, fail } = require('../util/response.util');
 const { Client } = require('@elastic/elasticsearch');
 
@@ -335,6 +336,11 @@ exports.toggleCheer = async (req, res) => {
         const userId = req.user.id;
         const { id } = req.params;
 
+        const [boardExists] = await connection.query('SELECT id FROM boards WHERE id = ?', [id]);
+        if (boardExists.length === 0) {
+            throw new Error('NOT_FOUND_BOARD');
+        }
+        
         // 1. 이미 응원했는지 확인
         const [exists] = await connection.query(
             'SELECT id FROM cheers WHERE user_id = ? AND board_id = ?',
@@ -356,6 +362,10 @@ exports.toggleCheer = async (req, res) => {
         const [countResult] = await connection.query('SELECT COUNT(*) as count FROM cheers WHERE board_id = ?', [id]);
         
         await connection.commit();
+
+        if (typeof redis !== 'undefined') {
+            await redis.del('cache:main:realtime:global');
+        }
 
         res.status(200).json({
             success: true,
