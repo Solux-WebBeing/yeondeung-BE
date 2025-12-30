@@ -1,40 +1,43 @@
 const express = require('express');
 const router = express.Router();
 const searchController = require('../controllers/search.controller');
+const { verifyToken } = require('../middlewares/auth.middleware');
 
 /**
  * @swagger
  * /api/search:
  *   get:
- *     summary: 게시글 통합 검색 (ELK)
- *     description: 키워드 검색 및 의제, 지역, 참여 방식 등 다양한 필터를 조합하여 게시글을 검색합니다.
+ *     summary: "게시글 통합 검색 (ELK)"
+ *     description: "키워드 검색 및 의제, 지역, 참여 방식 등 다양한 필터를 조합하여 게시글을 검색합니다. (로그인 필수)"
  *     tags: [Search]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: q
  *         schema:
  *           type: string
- *         description: 검색 키워드 (제목, 본문 대상)
+ *         description: "검색 키워드 (제목, 본문 대상)"
  *
  *       - in: query
  *         name: topics
  *         schema:
  *           type: string
- *         description: 의제 필터 (여성, 노동자, 환경 등 14종)
- *         example: "환경"
+ *         description: "의제 필터 (쉼표로 구분하여 다중 선택 가능, OR 연산)"
+ *         example: "복지,의료"
  *
  *       - in: query
  *         name: region
  *         schema:
  *           type: string
- *         description: 시/도 지역 필터
+ *         description: "시/도 지역 필터"
  *         example: "서울"
  *
  *       - in: query
  *         name: district
  *         schema:
  *           type: string
- *         description: 시/군/구 상세 지역 필터
+ *         description: "시/군/구 상세 지역 필터"
  *         example: "강남구"
  *
  *       - in: query
@@ -42,39 +45,39 @@ const searchController = require('../controllers/search.controller');
  *         schema:
  *           type: string
  *           enum: [집회, 서명, 청원, 탄원, 행사]
- *         description: 참여 방식 필터
+ *         description: "참여 방식 필터"
  *
  *       - in: query
  *         name: host_type
  *         schema:
  *           type: string
  *           enum: [INDIVIDUAL, ORGANIZATION]
- *         description: 주최자 유형 (개인/단체)
+ *         description: "주최자 유형 (개인/단체)"
  *
  *       - in: query
  *         name: start_date
  *         schema:
  *           type: string
  *           format: date-time
- *         description: 조회 시작 일시 (yyyy-MM-dd HH:mm:ss)
+ *         description: "조회 시작 일시 (yyyy-MM-dd HH:mm:ss)"
  *
  *       - in: query
  *         name: end_date
  *         schema:
  *           type: string
  *           format: date-time
- *         description: 조회 종료 일시 (yyyy-MM-dd HH:mm:ss)
+ *         description: "조회 종료 일시 (yyyy-MM-dd HH:mm:ss)"
  *
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           default: 1
- *         description: 페이지 번호 (한 페이지당 8개 노출)
+ *         description: "페이지 번호 (한 페이지당 8개 노출)"
  *
  *     responses:
  *       200:
- *         description: 검색 성공. 오늘 종료 활동이 최상단에 고정된 리스트를 반환합니다.
+ *         description: "검색 성공. 오늘 종료 활동이 최상단에 고정된 리스트를 반환합니다."
  *         content:
  *           application/json:
  *             schema:
@@ -92,36 +95,33 @@ const searchController = require('../controllers/search.controller');
  *                   type: array
  *                   items:
  *                     type: object
- *       400:
- *         description: 잘못된 요청 파라미터
+ *       401:
+ *         description: "인증 실패 (토큰 누락 또는 유효하지 않음)"
  *       500:
- *         description: 검색 엔진 서버 오류
+ *         description: "검색 엔진 서버 오류"
  */
-
-// GET /api/search?q=...&topics=...&region=...
-router.get('/', searchController.searchPosts);
-
-
-// search.routes.js
+router.get('/', verifyToken, searchController.searchPosts);
 
 /**
  * @swagger
  * /api/search/suggest:
  *   get:
- *     summary: 실시간 추천 검색어 제안
- *     description: 사용자가 입력 중인 텍스트(q)를 바탕으로 자동 완성된 검색어 목록을 반환합니다.
+ *     summary: "실시간 추천 검색어 제안"
+ *     description: "사용자가 입력 중인 텍스트(q)를 바탕으로 자동 완성된 검색어 목록을 반환합니다. (로그인 필수)"
  *     tags: [Search]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: q
  *         required: true
  *         schema:
  *           type: string
- *         description: 입력 중인 검색어
+ *         description: "입력 중인 검색어"
  *         example: "환"
  *     responses:
  *       200:
- *         description: 추천 검색어 목록 반환
+ *         description: "추천 검색어 목록 반환"
  *         content:
  *           application/json:
  *             schema:
@@ -129,20 +129,16 @@ router.get('/', searchController.searchPosts);
  *               properties:
  *                 success:
  *                   type: boolean
- *                   example: true
- *                 suggestions:
+ *                 data:
  *                   type: array
  *                   items:
  *                     type: string
  *                   example: ["환경 보호", "환경 캠페인", "환경 집회"]
- *       400:
- *         description: 검색어(q)가 전달되지 않은 경우
+ *       401:
+ *         description: "인증 실패"
  *       500:
- *         description: 검색 엔진 서버 오류
+ *         description: "검색 엔진 서버 오류"
  */
-router.get('/suggest', searchController.getSuggestions);
-
+router.get('/suggest', verifyToken, searchController.getSuggestions);
 
 module.exports = router;
-
-

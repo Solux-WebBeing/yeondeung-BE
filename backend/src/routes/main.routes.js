@@ -59,30 +59,5 @@ router.get('/realtime', verifyToken, mainController.getRealtime);
  */
 router.get('/imminent', verifyToken, mainController.getImminent);
 
-/**
- * @swagger
- * /api/main/cheer:
- *   post:
- *     summary: "응원하기 토글"
- *     tags: [Main]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               boardId:
- *                 type: integer
- *               action:
- *                 type: string
- *                 enum: [add, remove]
- *     responses:
- *       200:
- *         description: "성공"
- */
-router.post('/cheer', verifyToken, mainController.toggleCheer);
 
 module.exports = router;

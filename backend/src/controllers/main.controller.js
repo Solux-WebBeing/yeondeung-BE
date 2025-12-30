@@ -32,17 +32,3 @@ exports.getImminent = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-
-// 4. 응원 토글 (기존 유지)
-exports.toggleCheer = async (req, res) => {
-    const { boardId, action } = req.body;
-    const userId = req.user.id;
-    try {
-        if (action === 'add') await mainService.addCheer(userId, boardId);
-        else await mainService.removeCheer(userId, boardId);
-        res.json({ success: true, message: '반영되었습니다.' });
-    } catch (error) {
-        const status = error.message === 'ALREADY_CHEERED' ? 400 : 500;
-        res.status(status).json({ success: false, message: error.message });
-    }
-};
