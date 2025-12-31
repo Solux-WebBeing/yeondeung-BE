@@ -3,15 +3,13 @@ const redis = require('../config/redis.client');
 const { success, fail } = require('../util/response.util');
 const { Client } = require('@elastic/elasticsearch');
 
-// Elasticsearch 클라이언트 초기화 (도커 환경 변수 사용)
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 
 /**
- * 1. 게시글 생성 (Create) + ELK Indexing
+ * 1. 게시글 생성 (Create) + 정규화 매핑 + ELK 인덱싱
  */
 exports.createPost = async (req, res) => {
     const connection = await pool.getConnection();
-
     try {
         await connection.beginTransaction();
 
@@ -22,219 +20,154 @@ exports.createPost = async (req, res) => {
             link, images 
         } = req.body;
 
+        // [추가된 필드] AI 검증 결과 (미들웨어 등에서 넘어온 값)
         const { aiVerified } = req.validatedData || { aiVerified: false };
 
-        // 1. 유효성 및 날짜 검증
-        if (new Date(end_date) < new Date(start_date)) {
-            throw new Error("종료 일시가 시작 일시보다 빠릅니다");
-        }
-        if (!title || title.trim().length < 2) {
-            throw new Error("제목을 2자 이상 입력해주세요.");
-        }
-        const cleanContent = content ? content.replace(/\s+/g, '') : '';
-        if (cleanContent.length < 50) {
-            throw new Error("본문 내용은 공백 제외 50자 이상이어야 합니다.");
-        }
+        // [검증] 의제 개수 및 유효성
+        const topicList = topics.split(',').map(t => t.trim()).filter(t => t !== '');
+        if (topicList.length < 1 || topicList.length > 2) throw new Error("의제는 1~2개만 선택 가능합니다.");
 
-        // 2. 의제 개수 검증
-        const topicList = topics.split(',').filter(t => t.trim() !== '');
-        if (topicList.length < 1 || topicList.length > 2) {
-            throw new Error("의제는 최대 2개까지 선택할 수 있어요.");
-        }
+        // (1) 의제 ID 매핑 정보 로드
+        const [topicRows] = await connection.query('SELECT id, name FROM topics');
+        const topicMap = {};
+        topicRows.forEach(row => topicMap[row.name] = row.id);
 
-        // 3. 사용자 권한 및 제한 확인
-        const [userInfo] = await connection.query(
-            `SELECT u.user_type, (SELECT COUNT(*) FROM boards b WHERE b.user_id = u.id AND DATE(b.created_at) = CURDATE()) as daily_count
-             FROM users u WHERE u.id = ?`, [user_id]
-        );
-
-        if (!userInfo || userInfo.length === 0) throw new Error("사용자 정보를 찾을 수 없습니다.");
-        const { user_type, daily_count } = userInfo[0];
-
-        if (daily_count >= 2) throw new Error("하루 게시글 등록 가능 개수를 초과했습니다.");
-        if (user_type === 'INDIVIDUAL' && ['집회', '행사'].includes(participation_type)) {
-            throw new Error("개인 회원은 집회/행사 게시글을 등록할 수 없습니다.");
-        }
-
-        // 4. 조건부 필수값 체크
+        // (2) MySQL boards 테이블 삽입
         const isOfflineEvent = ['집회', '행사'].includes(participation_type);
-        if (isOfflineEvent && (!region || !district)) {
-            throw new Error("진행 장소(시/도, 시/군/구)가 누락되었습니다.");
-        }
-
-        // 5. URL 중복 검사
-        if (link) {
-             const [dupCheck] = await connection.query('SELECT id FROM boards WHERE link = ?', [link]);
-             if (dupCheck.length > 0) throw new Error("이미 등록된 활동이에요!");
-        }
-
-        // 6. MySQL 데이터 삽입
         const sql = `
             INSERT INTO boards 
             (user_id, participation_type, title, topics, content, start_date, end_date, region, district, link, is_verified, ai_verified) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        
-        const isVerified = false; 
-
         const [result] = await connection.query(sql, [
-            user_id, participation_type, title, topics, content, 
-            start_date, end_date, 
-            isOfflineEvent ? region : null, 
-            isOfflineEvent ? district : null, 
-            link || null, isVerified, aiVerified
+            user_id, participation_type, title, topics, content, start_date, end_date, 
+            isOfflineEvent ? region : null, isOfflineEvent ? district : null, 
+            link || null, false, aiVerified
         ]);
-        
         const newBoardId = result.insertId;
 
-        // 이미지 저장
-        if (images && Array.isArray(images) && images.length > 0) {
-            const imageValues = images.map(imgUrl => [newBoardId, imgUrl]);
-            await connection.query(
-                `INSERT INTO board_images (board_id, image_url) VALUES ?`,
-                [imageValues]
-            );
+        // (3) [정규화] board_topics 삽입 (매핑 테이블)
+        const topicValues = topicList
+            .map(name => topicMap[name])
+            .filter(tid => tid)
+            .map(tid => [newBoardId, tid]);
+
+        if (topicValues.length > 0) {
+            await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
         }
 
-        // 7. 트랜잭션 커밋
+        // (4) 이미지 저장
+        if (images?.length > 0) {
+            const imageValues = images.map(imgUrl => [newBoardId, imgUrl]);
+            await connection.query(`INSERT INTO board_images (board_id, image_url) VALUES ?`, [imageValues]);
+        }
+
         await connection.commit();
 
-        // 8. ELK 실시간 인덱싱 (DB 저장 후 진행)
+        // (5) ELK 실시간 인덱싱
         try {
-    await esClient.index({
-        index: 'boards',
-        id: newBoardId.toString(),
-        refresh: true,
-        document: {
-            user_id,
-            participation_type,
-            title,
-            topics,
-            content,
-            start_date: start_date ? new Date(start_date).toISOString().replace('T', ' ').substring(0, 19) : null,
-            end_date: end_date ? new Date(end_date).toISOString().replace('T', ' ').substring(0, 19) : null,
-            region: isOfflineEvent ? region : null,
-            district: isOfflineEvent ? district : null,
-            link: link || null,
-            is_verified: !!isVerified,
-            ai_verified: !!aiVerified,
-            created_at: new Date().toISOString().replace('T', ' ').substring(0, 19) // 생성일도 형식 통일
-        }
+            await esClient.index({
+                index: 'boards',
+                id: newBoardId.toString(),
+                refresh: true,
+                document: {
+                    id: newBoardId,
+                    user_id, participation_type, title, topics, content,
+                    start_date: start_date ? new Date(start_date).toISOString().replace('T', ' ').substring(0, 19) : null,
+                    end_date: end_date ? new Date(end_date).toISOString().replace('T', ' ').substring(0, 19) : null,
+                    region: isOfflineEvent ? region : null,
+                    district: isOfflineEvent ? district : null,
+                    link: link || null,
+                    is_verified: false, ai_verified: !!aiVerified,
+                    created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+                }
             });
-            console.log(`ELK Indexing Success: Post ID ${newBoardId}`);
-        } catch (esError) {
-            console.error('ELK Indexing Error: ', esError);
-        }
+        } catch (esErr) { console.error('ELK Indexing Error:', esErr); }
 
-        res.status(201).json({
-            success: true,
-            message: '게시글이 성공적으로 등록되었습니다.',
-            postId: newBoardId
-        });
-
+        return success(res, { postId: newBoardId }, '게시글이 성공적으로 등록되었습니다.');
     } catch (error) {
-        await connection.rollback();
-        console.error('게시글 등록 에러: ', error);
-        res.status(400).json({
-            success: false,
-            message: error.message || '게시글 등록 중 오류가 발생했습니다.'
-        });
+        if (connection) await connection.rollback();
+        return fail(res, error.message, 400);
     } finally {
         connection.release();
     }
 };
 
 /**
- * 2. 게시글 수정 (Update) + ELK Update
+ * 2. 게시글 수정 (Update) + 매핑 갱신 + ELK 업데이트
  */
 exports.updatePost = async (req, res) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-
-        const { id } = req.params; // boardId
+        const { id } = req.params;
         const userId = req.user.id;
-        const { 
-            participation_type, title, topics, content, start_date, end_date, 
-            region, district, link, images 
-        } = req.body;
+        const { participation_type, title, topics, content, start_date, end_date, region, district, link, images } = req.body;
 
-        // 1. 게시글 존재 여부 및 작성자 권한 확인
-        const [board] = await connection.query('SELECT user_id FROM boards WHERE id = ?', [id]);
-        
+        // (1) 권한 확인 및 기존 ai_verified 값 조회
+        const [board] = await connection.query('SELECT user_id, ai_verified FROM boards WHERE id = ?', [id]);
         if (board.length === 0) throw new Error('게시글을 찾을 수 없습니다.');
-        if (board[0].user_id !== userId) throw new Error('게시글을 수정할 권한이 없습니다.');
-
-        // 2. 유효성 검사
-        const cleanContent = content ? content.replace(/\s+/g, '') : '';
-        if (cleanContent.length < 50) throw new Error("본문 내용은 공백 제외 50자 이상이어야 합니다.");
-
-        // 3. 게시글 업데이트 (MySQL)
-        const updateSql = `
-            UPDATE boards 
-            SET participation_type = ?, title = ?, topics = ?, content = ?, start_date = ?, end_date = ?, 
-                region = ?, district = ?, link = ?, updated_at = NOW()
-            WHERE id = ?
-        `;
+        if (board[0].user_id !== userId) throw new Error('수정 권한이 없습니다.');
         
+        const existingAiVerified = board[0].ai_verified;
+
+        // (2) MySQL 업데이트
         const isOfflineEvent = ['집회', '행사'].includes(participation_type);
+        await connection.query(`
+            UPDATE boards SET 
+            participation_type = ?, title = ?, topics = ?, content = ?, start_date = ?, end_date = ?, 
+            region = ?, district = ?, link = ?, updated_at = NOW()
+            WHERE id = ?
+        `, [participation_type, title, topics, content, start_date, end_date, isOfflineEvent ? region : null, isOfflineEvent ? district : null, link || null, id]);
 
-        await connection.query(updateSql, [
-            participation_type, title, topics, content, start_date, end_date,
-            isOfflineEvent ? region : null,
-            isOfflineEvent ? district : null,
-            link || null,
-            id
-        ]);
+        // (3) [정규화] 매핑 갱신 (Delete then Insert)
+        await connection.query('DELETE FROM board_topics WHERE board_id = ?', [id]);
+        const [topicRows] = await connection.query('SELECT id, name FROM topics');
+        const topicMap = {};
+        topicRows.forEach(row => topicMap[row.name] = row.id);
 
-        // 4. 이미지 업데이트
-        if (images && Array.isArray(images)) {
-            await connection.query('DELETE FROM board_images WHERE board_id = ?', [id]);
-            if (images.length > 0) {
-                const imageValues = images.map(imgUrl => [id, imgUrl]);
-                await connection.query(`INSERT INTO board_images (board_id, image_url) VALUES ?`, [imageValues]);
-            }
+        const topicList = topics.split(',').map(t => t.trim()).filter(t => t !== '');
+        const topicValues = topicList.map(name => topicMap[name]).filter(tid => tid).map(tid => [id, tid]);
+        if (topicValues.length > 0) {
+            await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
+        }
+
+        // (4) 이미지 갱신
+        await connection.query('DELETE FROM board_images WHERE board_id = ?', [id]);
+        if (images?.length > 0) {
+            const imageValues = images.map(imgUrl => [id, imgUrl]);
+            await connection.query(`INSERT INTO board_images (board_id, image_url) VALUES ?`, [imageValues]);
         }
 
         await connection.commit();
 
-        // 5. ELK 실시간 업데이트
+        // (5) ELK 실시간 업데이트
         try {
-    await esClient.update({
-        index: 'boards',
-        id: id.toString(),
-        doc: {
-            participation_type,
-            title,
-            topics,
-            content,
-            start_date: start_date ? new Date(start_date).toISOString().replace('T', ' ').substring(0, 19) : null,
-            end_date: end_date ? new Date(end_date).toISOString().replace('T', ' ').substring(0, 19) : null,
-            region: isOfflineEvent ? region : null,
-            district: isOfflineEvent ? district : null,
-            link: link || null,
-            ai_verified: !!aiVerified,
-            updated_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
-        }
-    });
-            console.log(`ELK Update Success: Post ID ${id}`);
-        } catch (esError) {
-            console.error('ELK Update Error: ', esError);
-        }
-        
-        res.status(200).json({ success: true, message: '게시글이 수정되었습니다.' });
+            await esClient.update({
+                index: 'boards', id: id.toString(),
+                doc: { 
+                    participation_type, title, topics, content, 
+                    start_date: new Date(start_date).toISOString().replace('T', ' ').substring(0, 19),
+                    end_date: new Date(end_date).toISOString().replace('T', ' ').substring(0, 19),
+                    region: isOfflineEvent ? region : null,
+                    district: isOfflineEvent ? district : null,
+                    ai_verified: !!existingAiVerified, // 기존 값 유지
+                    updated_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+                }
+            });
+        } catch (esErr) { console.error('ELK Update Error:', esErr); }
 
+        return success(res, null, '수정 완료되었습니다.');
     } catch (error) {
-        await connection.rollback();
-        console.error('게시글 수정 에러:', error);
-        res.status(400).json({ success: false, message: error.message || '게시글 수정 실패' });
+        if (connection) await connection.rollback();
+        return fail(res, error.message, 400);
     } finally {
         connection.release();
     }
 };
 
 /**
- * 3. 게시글 삭제 (Delete) + ELK Delete
+ * 3. 게시글 삭제 (Delete) + ELK 삭제
  */
 exports.deletePost = async (req, res) => {
     const connection = await pool.getConnection();
@@ -242,34 +175,25 @@ exports.deletePost = async (req, res) => {
         const { id } = req.params;
         const userId = req.user.id;
 
-        // 1. 권한 확인
         const [board] = await connection.query('SELECT user_id FROM boards WHERE id = ?', [id]);
         if (board.length === 0) throw new Error('게시글을 찾을 수 없습니다.');
-        if (board[0].user_id !== userId) throw new Error('게시글을 삭제할 권한이 없습니다.');
+        if (board[0].user_id !== userId) throw new Error('삭제 권한이 없습니다.');
 
-        // 2. 삭제 실행 (MySQL)
+        // MySQL 삭제 (FK CASCADE 설정 필수)
         await connection.query('DELETE FROM boards WHERE id = ?', [id]);
 
-        // 3. ELK 실시간 삭제
+        // ELK 삭제
         try {
-            await esClient.delete({
-                index: 'boards',
-                id: id.toString()
-            });
-            console.log(`ELK Delete Success: Post ID ${id}`);
-        } catch (esError) {
-            console.error('ELK Delete Error: ', esError);
+            await esClient.delete({ index: 'boards', id: id.toString() });
+        } catch (esErr) { console.error('ELK Delete Error:', esErr); }
+
+        return success(res, null, '게시글이 삭제되었습니다.');
+        } catch (error) {
+            return fail(res, error.message, 400);
+        } finally {
+            connection.release();
         }
-
-        res.status(200).json({ success: true, message: '게시글이 삭제되었습니다.' });
-
-    } catch (error) {
-        console.error('게시글 삭제 에러:', error);
-        res.status(400).json({ success: false, message: error.message || '일시적인 오류로 삭제하지 못했습니다.' });
-    } finally {
-        connection.release();
-    }
-};
+    };
 
 /**
  * 4. 게시글 신고 (Report)

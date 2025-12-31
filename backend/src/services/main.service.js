@@ -134,8 +134,7 @@ exports.getGlobalSolidarity = async (type) => {
             SELECT * FROM boards 
             WHERE end_date > NOW() 
               AND DATE(end_date) <= DATE_ADD(CURDATE(), INTERVAL 1 DAY)
-            ORDER BY end_date ASC 
-            LIMIT 6`;
+            ORDER BY end_date ASC`;
     } else {
         query = `
             SELECT b.* FROM boards b

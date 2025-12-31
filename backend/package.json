@@ -34,6 +34,7 @@
     "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.16.0",
+    "node-cron": "^4.2.1",
     "nodemailer": "^7.0.10",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",

@@ -11,6 +11,8 @@ const cors = require('cors');
 // 3. Express 앱을 생성하고 포트를 설정합니다.
 const app = express();
 const port = process.env.PORT || 8000;
+const { startCleanupTask } = require('./src/util/scheduler');
+startCleanupTask();
 
 // 4. 미들웨어 설정
 app.use(express.json());
