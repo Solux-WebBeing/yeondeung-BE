@@ -398,6 +398,7 @@ exports.login = async (req, res) => {
     // 4. JWT 페이로드 생성
     const payload = {
       id: user.id,
+      role: user.role,
       nickname: nickname, 
       email: user.email,
       userid: user.userid,
@@ -517,108 +518,89 @@ exports.setupOrganization = async (req, res) => {
 
 /**
  * 10. 개인 회원 최초 정보 설정
- * - 메일링 동의(mailing_consent)에 따른 분기 처리 및 DB 업데이트
- * - 설정 후 is_first_login = true 변경
  */
 exports.setupIndividual = async (req, res) => {
-  const { id } = req.user;
-  // mailing_consent 추가됨
-  const { interests, mailing_consent, mailing_days, mailing_time } = req.body;
-  let connection;
+    const { id } = req.user;
+    const { interests, mailing_consent, mailing_days, mailing_time } = req.body;
+    let connection;
 
-  const ALLOWED_INTERESTS = [
-    '여성', '노동자', '농민', '교육', '복지', '환경', '추모기억',
-    '청소년', '성소수자', '장애인', '범죄사법', '의료', '인권', '동물권'
-  ];
-  const ALLOWED_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+    // DB 마스터 데이터와 일치하도록 수정 (/, / 포함)
+    const ALLOWED_INTERESTS = [
+        '여성', '청소년', '노동자', '성소수자', '농민', '장애인', 
+        '교육', '범죄/사법', '복지', '의료', '환경', '인권', 
+        '추모/기억', '동물권'
+    ];
+    const ALLOWED_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
-  try {
-    // 1. 관심 분야 검증 (공통 필수)
-    if (!Array.isArray(interests) || interests.length === 0) {
-      return fail(res, '관심 분야를 최소 1개 이상 선택해야 합니다.', 400);
+    try {
+        if (!Array.isArray(interests) || interests.length === 0) {
+            return res.status(400).json({ success: false, message: '관심 분야를 최소 1개 이상 선택해야 합니다.' });
+        }
+        const invalidInterest = interests.find(item => !ALLOWED_INTERESTS.includes(item));
+        if (invalidInterest) {
+            return res.status(400).json({ success: false, message: `유효하지 않은 관심 분야: ${invalidInterest}` });
+        }
+
+        let daysJson = null;
+        let dbTime = null;
+
+        if (mailing_consent === true) {
+            if (!Array.isArray(mailing_days) || mailing_days.length !== 2) {
+                return res.status(400).json({ success: false, message: '메일링 요일 2개를 선택해야 합니다.' });
+            }
+            const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
+            if (!mailing_time || !timeRegex.test(mailing_time)) {
+                return res.status(400).json({ success: false, message: '시간 형식이 올바르지 않습니다.' });
+            }
+
+            const [amPm, timePart] = mailing_time.split(' ');
+            let hour = parseInt(timePart.replace('시', ''));
+            if (amPm === 'PM' && hour !== 12) hour += 12;
+            else if (amPm === 'AM' && hour === 12) hour = 0;
+            dbTime = `${String(hour).padStart(2, '0')}:00:00`;
+            daysJson = JSON.stringify(mailing_days);
+        }
+
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        // 1. 의제 ID 매핑 정보 로드
+        const [topicRows] = await connection.query('SELECT id, name FROM topics');
+        const topicMap = {};
+        topicRows.forEach(row => topicMap[row.name] = row.id);
+
+        // 2. 프로필 업데이트 (기존 JSON 필드 유지)
+        const interestsJson = JSON.stringify(interests);
+        await connection.query(`
+            UPDATE individual_profiles 
+            SET interests = ?, mailing_consent = ?, mailing_days = ?, mailing_time = ? 
+            WHERE user_id = ?
+        `, [interestsJson, mailing_consent, daysJson, dbTime, id]);
+
+        // 3. [정규화] user_interests 매핑 갱신
+        await connection.query('DELETE FROM user_interests WHERE user_id = ?', [id]);
+        const interestValues = interests
+            .map(name => topicMap[name])
+            .filter(tid => tid)
+            .map(tid => [id, tid]);
+
+        if (interestValues.length > 0) {
+            await connection.query('INSERT INTO user_interests (user_id, topic_id) VALUES ?', [interestValues]);
+        }
+
+        // 4. 첫 로그인 상태 변경
+        await connection.query('UPDATE users SET is_first_login = true WHERE id = ?', [id]);
+
+        await connection.commit();
+        return res.status(200).json({ success: true, message: '개인 맞춤 정보 설정이 완료되었습니다.' });
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Setup Error:', error);
+        return res.status(500).json({ success: false, message: '서버 에러가 발생했습니다.' });
+    } finally {
+        if (connection) connection.release();
     }
-    const invalidInterest = interests.find(item => !ALLOWED_INTERESTS.includes(item));
-    if (invalidInterest) {
-      return fail(res, `유효하지 않은 관심 분야가 포함되어 있습니다: ${invalidInterest}`, 400);
-    }
-
-    // --- 메일링 서비스 로직 분기 ---
-    let daysJson = null;
-    let dbTime = null;
-
-    if (mailing_consent === true) {
-      // 동의했을 때만 요일/시간 검증
-      if (!Array.isArray(mailing_days) || mailing_days.length !== 2) {
-        return fail(res, '메일링 서비스를 받으시려면 요일 2개를 선택해야 합니다.', 400);
-      }
-      const invalidDay = mailing_days.find(day => !ALLOWED_DAYS.includes(day));
-      if (invalidDay) {
-        return fail(res, '유효하지 않은 요일이 포함되어 있습니다.', 400);
-      }
-
-      const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
-      if (!mailing_time || !timeRegex.test(mailing_time)) {
-        return fail(res, '시간 형식이 올바르지 않습니다. (예: AM 10시, PM 2시)', 400);
-      }
-
-      // 시간 변환
-      const [amPm, timePart] = mailing_time.split(' ');
-      let hour = parseInt(timePart.replace('시', ''));
-
-      if (amPm === 'PM' && hour !== 12) {
-        hour += 12;
-      } else if (amPm === 'AM' && hour === 12) {
-        hour = 0;
-      }
-      dbTime = `${String(hour).padStart(2, '0')}:00:00`;
-      
-      daysJson = JSON.stringify(mailing_days);
-
-    } 
-    // mailing_consent === false 이면 daysJson, dbTime은 null로 유지
-
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
-
-    const interestsJson = JSON.stringify(interests);
-
-    // mailing_consent 포함하여 업데이트
-    const updateProfileSql = `
-      UPDATE individual_profiles 
-      SET interests = ?, mailing_consent = ?, mailing_days = ?, mailing_time = ? 
-      WHERE user_id = ?
-    `;
-    
-    const [result] = await connection.query(updateProfileSql, [
-        interestsJson, 
-        mailing_consent, 
-        daysJson, 
-        dbTime, 
-        id
-    ]);
-
-    if (result.affectedRows === 0) {
-      await connection.rollback();
-      return fail(res, '프로필 정보를 찾을 수 없습니다.', 404);
-    }
-
-    // 설정 완료 시 is_first_login = true
-    const updateUserSql = 'UPDATE users SET is_first_login = true WHERE id = ?';
-    await connection.query(updateUserSql, [id]);
-
-    await connection.commit();
-    return success(res, '개인 맞춤 정보 설정이 완료되었습니다.');
-
-  } catch (error) {
-    if (connection) await connection.rollback();
-    console.error('Server Error:', error);
-    if (error.code === 'ER_TRUNCATED_WRONG_VALUE') {
-        return fail(res, `DB 시간 저장 오류: ${error.sqlMessage}`, 500);
-    }
-    return fail(res, '서버 에러가 발생했습니다.', 500);
-  } finally {
-    if (connection) connection.release();
-  }
 };
 
 /**
