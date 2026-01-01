@@ -52,14 +52,22 @@ const { validateBoardCreate } = require('../middlewares/validate.middleware');
  *                 example: '이 게시글은 환경 보호를 위한 서명 운동입니다. 많은 참여 부탁드립니다. 많은 참여 부탁드립니다. 많은 참여 부탁드립니다. 많은 참여 부탁드립니다.'
  *               start_date:
  *                 type: string
- *                 format: date-time
- *                 description: '시작일 (YYYY-MM-DD HH:mm:ss)'
- *                 example: '2023-11-01 10:00:00'
+ *                 format: date
+ *                 description: '시작일 (YYYY-MM-DD)'
+ *                 example: '2023-11-01'
+ *               start_time:
+ *                 type: string
+ *                 description: '시작 시간 (HH:MM, 24시간제, 5분 단위)'
+ *                 example: '10:00'
  *               end_date:
  *                 type: string
- *                 format: date-time
- *                 description: '종료일 (YYYY-MM-DD HH:mm:ss)'
- *                 example: '2023-11-30 18:00:00'
+ *                 format: date
+ *                 description: '종료일 (YYYY-MM-DD)'
+ *                 example: '2023-11-30'
+ *               end_time:
+ *                 type: string
+ *                 description: '종료 시간 (HH:MM, 24시간제, 5분 단위)'
+ *                 example: '18:35'
  *               link:
  *                 type: string
  *                 description: '참여 링크 (서명/청원/탄원 시 필수, 화이트리스트 도메인만 허용)'
@@ -137,8 +145,22 @@ router.post('/', verifyToken, validateBoardCreate, boardController.createPost);
  *                 type: string
  *               start_date:
  *                 type: string
+ *                 format: date
+ *                 description: '시작일 (YYYY-MM-DD)'
+ *                 example: '2023-11-01'
+ *               start_time:
+ *                 type: string
+ *                 description: '시작 시간 (HH:MM, 24시간제, 5분 단위)'
+ *                 example: '10:00'
  *               end_date:
  *                 type: string
+ *                 format: date
+ *                 description: '종료일 (YYYY-MM-DD)'
+ *                 example: '2023-11-30'
+ *               end_time:
+ *                 type: string
+ *                 description: '종료 시간 (HH:MM, 24시간제, 5분 단위)'
+ *                 example: '18:35'
  *               link:
  *                 type: string
  *               region:

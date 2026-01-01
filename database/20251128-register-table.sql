@@ -18,7 +18,6 @@ CREATE TABLE users (
     
     role ENUM('USER', 'ADMIN') DEFAULT 'USER' COMMENT '권한',
     
-    -- [통합] ALTER로 추가했던 컬럼들을 여기로 합침
     has_logged_in BOOLEAN DEFAULT FALSE COMMENT '로그인 여부 (0:없음, 1:있음)',
     approval_status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'APPROVED' COMMENT '승인 상태 (기본값 APPROVED)',
     
@@ -31,8 +30,6 @@ CREATE TABLE individual_profiles (
     user_id BIGINT PRIMARY KEY COMMENT 'users.id 외래 키',
     nickname VARCHAR(100) NOT NULL COMMENT '닉네임',
     email_consent BOOLEAN DEFAULT FALSE COMMENT '이메일 수신 동의 여부',
-    
-    -- 개인 회원 추가 정보 (이전 대화 내용 반영, 필요 시 주석 해제)
     interests TEXT COMMENT '관심사',
     mailing_days VARCHAR(50) COMMENT '메일링 요일',
     mailing_time TIME COMMENT '메일링 시간',
@@ -50,7 +47,6 @@ CREATE TABLE organization_profiles (
     contact_number VARCHAR(50) NOT NULL COMMENT '연락처',
     address VARCHAR(255) NOT NULL COMMENT '주소',
     
-    -- 단체 회원 추가 정보 (이전 대화 내용 반영)
     introduction TEXT COMMENT '소개글',
 
     CONSTRAINT fk_organization_user 

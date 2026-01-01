@@ -144,18 +144,30 @@ exports.searchPosts = async (req, res) => {
                 dDay = diffDays < 0 ? "마감" : diffDays === 0 ? "D-0" : `D-${diffDays}`;
                 isTodayEnd = diffDays === 0;
             }
-            const formatDate = (d) => d ? new Date(d).toISOString().split('T')[0].replace(/-/g, '. ') : "";
+            // const formatDate = (d) => d ? new Date(d).toISOString().split('T')[0].replace(/-/g, '. ') : "";
+            // 날짜/시간 포맷팅 함수 수정
+            const formatDisplayDate = (dateStr, isTimeSet) => {
+                if (!dateStr) return "";
+                const date = new Date(dateStr);
+                const ymd = date.toISOString().split('T')[0].replace(/-/g, '. ');
+                if (isTimeSet) {
+                    const hhmm = dateStr.substring(11, 16); // "YYYY-MM-DD HH:MM:SS"에서 HH:MM 추출
+                    return `${ymd} ${hhmm}`;
+                }
+                return ymd;
+            };
 
             return {
                 id: post.id,
                 title: post.title,
                 topics: post.topics ? post.topics.split(',').map(t => t.trim()) : [],
                 location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
-                dateDisplay: (post.start_date && post.end_date) ? `${formatDate(post.start_date)} ~ ${formatDate(post.end_date)}` : "상시 진행",
+                dateDisplay: (post.start_date && post.end_date) 
+                    ? `${formatDisplayDate(post.start_date, post.is_start_time_set)} ~ ${formatDisplayDate(post.end_date, post.is_end_time_set)}` 
+                    : "상시 진행",
                 cheerCount: totalCount,
                 dDay,
                 isTodayEnd,
-                // 정밀하게 계산된 해당 의제의 관심자 수만 출력
                 interestMessage: `${selected.name} 의제에 관심이 있는 ${selected.count}명이 연대합니다!`
             };
         });

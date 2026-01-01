@@ -62,6 +62,8 @@ async function sync() {
         ai_verified: !!doc.ai_verified,
         start_date: doc.start_date ? new Date(doc.start_date).toISOString().replace('T', ' ').substring(0, 19) : null,
         end_date: doc.end_date ? new Date(doc.end_date).toISOString().replace('T', ' ').substring(0, 19) : null,
+        is_start_time_set: !!doc.is_start_time_set, // 플래그 추가
+        is_end_time_set: !!doc.is_end_time_set,     // 플래그 추가
         created_at: doc.created_at ? new Date(doc.created_at).toISOString().replace('T', ' ').substring(0, 19) : null,
         updated_at: doc.updated_at ? new Date(doc.updated_at).toISOString().replace('T', ' ').substring(0, 19) : null
       }
