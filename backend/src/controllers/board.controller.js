@@ -3,6 +3,8 @@ const redis = require('../config/redis.client');
 const { success, fail } = require('../util/response.util');
 const { Client } = require('@elastic/elasticsearch');
 const { sendActivityNotifications } = require('../util/notification.util');
+const axios = require('form-data');
+const FromData = require('form-data');
 
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 
@@ -16,6 +18,28 @@ const validateTimeFormat = (time) => {
 };
 
 /**
+ * [Helper] ImgBB 이미지 업로드 함수
+ */
+const uploadToImgBB = async (fileBuffer) => {
+    try {
+        const apiKey = process.env.IMGBB_API_KEY; // .env에 API 키 저장 필요
+        if (!apiKey) throw new Error('ImgBB API Key가 설정되지 않았습니다.');
+
+        const formData = new FormData();
+        // ImgBB는 base64 문자열을 'image' 필드로 받습니다.
+        formData.append('image', fileBuffer.toString('base64'));
+
+        const response = await axios.post(`https://api.imgbb.com/1/upload?key=${apiKey}`, formData, {
+            headers: formData.getHeaders(),
+        });
+
+        return response.data.data.url; // 업로드된 이미지 URL 반환
+    } catch (error) {
+        console.error('ImgBB Upload Error:', error.response?.data || error.message);
+        throw new Error('이미지 업로드 중 오류가 발생했습니다.');
+    }
+};
+/**
  * 1. 게시글 생성 (Create)
  */
 exports.createPost = async (req, res) => {
@@ -27,10 +51,29 @@ exports.createPost = async (req, res) => {
         const { 
             participation_type, title, topics, content, 
             start_date, start_time, end_date, end_time, 
-            region, district, link, images 
+            region, district, link 
+            // images는 req.body가 아니라 req.files에서 처리
         } = req.body;
 
         const { aiVerified } = req.validatedData || { aiVerified: false };
+
+        // [0] 이미지 처리 (ImgBB) - 최대 2개 제한
+        let imageUrls = [];
+        
+        // Multer를 통해 파일이 업로드된 경우 (req.files)
+        if (req.files && req.files.length > 0) {
+            if (req.files.length > 2) {
+                throw new Error("사진은 최대 2장까지만 첨부할 수 있습니다.");
+            }
+            // 병렬로 이미지 업로드 진행
+            imageUrls = await Promise.all(req.files.map(file => uploadToImgBB(file.buffer)));
+        } 
+        // 기존처럼 URL 문자열 배열로 들어온 경우 (req.body.images) 호환성 유지
+        else if (req.body.images) {
+            const bodyImages = Array.isArray(req.body.images) ? req.body.images : [req.body.images];
+            if (bodyImages.length > 2) throw new Error("사진은 최대 2장까지만 첨부할 수 있습니다.");
+            imageUrls = bodyImages;
+        }
 
         // [1] 시간 검증 및 조합
         if (!validateTimeFormat(start_time) || !validateTimeFormat(end_time)) {
@@ -74,9 +117,9 @@ exports.createPost = async (req, res) => {
             await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
         }
 
-        // [5] 이미지 URL 저장
-        if (images?.length > 0) {
-            const imageValues = images.map(imgUrl => [newBoardId, imgUrl]);
+        // [5] 이미지 URL 저장 (ImgBB에서 받은 URL 사용)
+        if (imageUrls.length > 0) {
+            const imageValues = imageUrls.map(imgUrl => [newBoardId, imgUrl]);
             await connection.query(`INSERT INTO board_images (board_id, image_url) VALUES ?`, [imageValues]);
         }
 
@@ -112,7 +155,7 @@ exports.createPost = async (req, res) => {
             });
         } catch (esErr) { console.error('ELK Indexing Error:', esErr); }
 
-        return success(res, { postId: newBoardId }, '게시글이 성공적으로 등록되었습니다.');
+        return success(res, { postId: newBoardId, imageUrls }, '게시글이 성공적으로 등록되었습니다.');
     } catch (error) {
         if (connection) await connection.rollback();
         return fail(res, error.message, 400);
@@ -120,7 +163,6 @@ exports.createPost = async (req, res) => {
         connection.release();
     }
 };
-
 /**
  * 2. 게시글 수정 (Update)
  */
@@ -130,10 +172,13 @@ exports.updatePost = async (req, res) => {
         await connection.beginTransaction();
         const { id } = req.params;
         const userId = req.user.id;
+        
+        // existing_images: 클라이언트가 "삭제하지 않고 남겨둔" 기존 이미지 URL 리스트
+        // req.files: 클라이언트가 "새로 추가한" 이미지 파일 리스트
         const { 
             participation_type, title, topics, content, 
             start_date, start_time, end_date, end_time, 
-            region, district, link, images 
+            region, district, link, existing_images 
         } = req.body;
 
         // [1] 권한 확인 및 기존 ai_verified 값 조회
@@ -143,7 +188,27 @@ exports.updatePost = async (req, res) => {
         
         const existingAiVerified = board[0].ai_verified;
 
-        // [2] 시간 검증 및 조합
+        // [2] 이미지 처리 (기존 유지 + 신규 업로드)
+        let finalImageUrls = [];
+
+        // 2-1. 기존 유지할 이미지 처리
+        if (existing_images) {
+            const keepList = Array.isArray(existing_images) ? existing_images : [existing_images];
+            finalImageUrls.push(...keepList);
+        }
+
+        // 2-2. 신규 이미지 업로드 (ImgBB)
+        if (req.files && req.files.length > 0) {
+            const newImageUrls = await Promise.all(req.files.map(file => uploadToImgBB(file.buffer)));
+            finalImageUrls.push(...newImageUrls);
+        }
+
+        // 2-3. 개수 제한 검사 (최대 2개)
+        if (finalImageUrls.length > 2) {
+            throw new Error("사진은 최대 2장까지만 등록 가능합니다 (기존 포함).");
+        }
+
+        // [3] 시간 검증 및 조합
         if (!validateTimeFormat(start_time) || !validateTimeFormat(end_time)) {
             throw new Error("시간 형식이 올바르지 않거나 5분 단위가 아닙니다. (HH:MM)");
         }
@@ -152,7 +217,7 @@ exports.updatePost = async (req, res) => {
         const finalStartDate = is_start_time_set ? `${start_date} ${start_time}:00` : `${start_date} 00:00:00`;
         const finalEndDate = is_end_time_set ? `${end_date} ${end_time}:00` : `${end_date} 00:00:00`;
 
-        // [3] MySQL boards 업데이트
+        // [4] MySQL boards 업데이트
         const isOfflineEvent = ['집회', '행사'].includes(participation_type);
         await connection.query(`
             UPDATE boards SET 
@@ -162,7 +227,7 @@ exports.updatePost = async (req, res) => {
             WHERE id = ?
         `, [participation_type, title, topics, content, finalStartDate, finalEndDate, is_start_time_set, is_end_time_set, isOfflineEvent ? region : null, isOfflineEvent ? district : null, link || null, id]);
 
-        // [4] 의제(Topics) 매핑 갱신
+        // [5] 의제(Topics) 매핑 갱신
         await connection.query('DELETE FROM board_topics WHERE board_id = ?', [id]);
         const [topicRows] = await connection.query('SELECT id, name FROM topics');
         const topicMap = {};
@@ -174,16 +239,16 @@ exports.updatePost = async (req, res) => {
             await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
         }
 
-        // [5] 이미지 URL 갱신
+        // [6] 이미지 URL 갱신 (기존 것 다 지우고 최종 리스트로 다시 삽입)
         await connection.query('DELETE FROM board_images WHERE board_id = ?', [id]);
-        if (images?.length > 0) {
-            const imageValues = images.map(imgUrl => [id, imgUrl]);
+        if (finalImageUrls.length > 0) {
+            const imageValues = finalImageUrls.map(imgUrl => [id, imgUrl]);
             await connection.query(`INSERT INTO board_images (board_id, image_url) VALUES ?`, [imageValues]);
         }
 
         await connection.commit();
 
-        // [6] ELK 실시간 업데이트
+        // [7] ELK 실시간 업데이트
         try {
             await esClient.update({
                 index: 'boards', id: id.toString(),
@@ -197,11 +262,12 @@ exports.updatePost = async (req, res) => {
                     district: isOfflineEvent ? district : null,
                     ai_verified: !!existingAiVerified,
                     updated_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+                    // 필요하다면 이미지 필드도 ELK에 업데이트
                 }
             });
         } catch (esErr) { console.error('ELK Update Error:', esErr); }
 
-        return success(res, null, '수정 완료되었습니다.');
+        return success(res, { imageUrls: finalImageUrls }, '수정 완료되었습니다.');
     } catch (error) {
         if (connection) await connection.rollback();
         return fail(res, error.message, 400);
@@ -223,7 +289,12 @@ exports.deletePost = async (req, res) => {
         if (board.length === 0) throw new Error('게시글을 찾을 수 없습니다.');
         if (board[0].user_id !== userId) throw new Error('삭제 권한이 없습니다.');
 
+        // [중요] DB FK 설정(ON DELETE CASCADE)이 없다면 이미지 테이블을 먼저 지워야 안전함
+        await connection.query('DELETE FROM board_images WHERE board_id = ?', [id]);
         await connection.query('DELETE FROM boards WHERE id = ?', [id]);
+
+        // 참고: ImgBB API를 통해 이미지를 삭제하려면 업로드 시 받은 delete_url이 필요함.
+        // 현재 로직상 delete_url을 저장하지 않으므로 ImgBB 서버에는 이미지가 남음.
 
         try {
             await esClient.delete({ index: 'boards', id: id.toString() });
