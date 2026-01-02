@@ -452,6 +452,23 @@ router.get('/notifications', verifyToken, notificationController.getMyNotificati
 
 /**
  * @swagger
+ * /api/users/notifications/read-all:
+ *   patch:
+ *     summary: "모든 알림 일괄 읽음 처리"
+ *     description: "사용자의 모든 미확인 알림을 읽음 상태로 일괄 변경합니다. 알림 목록 조회가 완료된 시점에 프론트엔드에서 호출합니다."
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: "성공"
+ *       401:
+ *         description: "인증 실패"
+ */
+router.patch('/notifications/read-all', verifyToken, notificationController.markAllNotificationsAsRead);
+
+/**
+ * @swagger
  * /api/users/logout:
  *   post:
  *     summary: 로그아웃
