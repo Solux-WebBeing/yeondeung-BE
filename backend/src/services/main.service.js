@@ -130,26 +130,47 @@ exports.getGlobalSolidarity = async (type) => {
 
     let query = '';
     if (type === 'imminent') {
+        // 마감 임박 쿼리 (기존 동일)
         query = `
             SELECT * FROM boards 
             WHERE end_date > NOW() 
               AND DATE(end_date) <= DATE_ADD(CURDATE(), INTERVAL 1 DAY)
             ORDER BY end_date ASC`;
     } else {
+        // 실시간 HOT: 최근 24시간 동안 응원을 많이 받은 게시물 6건
         query = `
-            SELECT b.* FROM boards b
+            SELECT b.*, COUNT(c.id) AS recent_cheer_count
+            FROM boards b
             LEFT JOIN cheers c ON b.id = c.board_id 
+              AND c.created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY) 
             GROUP BY b.id 
-            ORDER BY COUNT(c.id) DESC, b.created_at DESC 
+            ORDER BY recent_cheer_count DESC, b.created_at DESC 
             LIMIT 6`;
     }
 
-    const [rows] = await db.execute(query);
+    let [rows] = await db.execute(query);
 
-    // [수정] DB에서 가져온 로우 데이터를 가공함
+    // [방어 로직] 실시간 HOT인데 24시간 동안 응원 합계가 0인 경우
+    if (type === 'realtime') {
+        const totalRecentCheers = rows.reduce((sum, row) => sum + Number(row.recent_cheer_count || 0), 0);
+        
+        if (totalRecentCheers === 0) {
+            // 24시간 응원이 없으면 '이전 리스트(전체 누적 인기순)'를 다시 가져옴
+            const fallbackQuery = `
+                SELECT b.*, COUNT(c.id) AS total_cheer_count
+                FROM boards b
+                LEFT JOIN cheers c ON b.id = c.board_id 
+                GROUP BY b.id 
+                ORDER BY total_cheer_count DESC, b.created_at DESC 
+                LIMIT 6`;
+            [rows] = await db.execute(fallbackQuery);
+        }
+    }
+
+    // 가공 (응원수 및 디데이 처리 등)
     const enrichedDataResult = await enrichData(rows);
 
-    // [수정] 가공된(응원수와 디데이가 포함된) 데이터를 Redis에 저장
+    // 데이터가 있을 때만 캐싱 (완전 빈 결과가 캐시되는 것 방지)
     if (enrichedDataResult.length > 0) {
         await redis.setex(cacheKey, ttl, JSON.stringify(enrichedDataResult));
     }
