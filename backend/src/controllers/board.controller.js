@@ -38,6 +38,41 @@ const uploadToImgBB = async (fileBuffer) => {
         throw new Error('이미지 업로드 중 오류가 발생했습니다.');
     }
 };
+
+/**
+ * [Helper] ELK 추천 검색어(suggest) 데이터 생성 함수
+ */
+const buildSuggestInput = (title, topics) => {
+    const suggestSet = new Set();
+    if (title) {
+        const cleanTitle = title.replace(/[^\w\sㄱ-ㅎ가-힣]/g, ' ');
+        const words = cleanTitle.split(/\s+/).filter(w => w.length >= 2);
+        words.forEach(word => suggestSet.add(word));
+        for (let i = 0; i < words.length - 1; i++) {
+            suggestSet.add(`${words[i]} ${words[i + 1]}`);
+        }
+        suggestSet.add(title.trim());
+    }
+    if (topics) {
+        // topics가 배열일 수도, 문자열일 수도 있으므로 방어적 처리
+        const tList = Array.isArray(topics) ? topics : topics.split(',');
+        tList.forEach(t => {
+            const trimmed = t.trim();
+            if (trimmed.length >= 1) suggestSet.add(trimmed);
+        });
+    }
+    return { input: Array.from(suggestSet).filter(Boolean), weight: 10 };
+};
+
+// 날짜 포맷 강제 변환 함수 (yyyy-MM-dd HH:mm:ss)
+const toEsDate = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+        const d = new Date(dateStr);
+        return d.toISOString().replace('T', ' ').substring(0, 19);
+    } catch (e) { return null; }
+};
+
 /**
  * 1. 게시글 생성 (Create)
  */
@@ -133,7 +168,7 @@ exports.createPost = async (req, res) => {
 
         await connection.commit();
 
-        // [6] ELK 실시간 인덱싱
+        // [6] ELK 실시간 인덱싱 (수정본)
         try {
             await esClient.index({
                 index: 'boards',
@@ -141,21 +176,33 @@ exports.createPost = async (req, res) => {
                 refresh: true,
                 document: {
                     id: newBoardId,
-                    user_id, participation_type, title, topics, content,
-                    start_date: finalStartDate,
-                    end_date: finalEndDate,
+                    user_id, 
+                    host_type: req.user.user_type, // [추가] 필터링을 위해 반드시 필요
+                    participation_type, 
+                    title, 
+                    topics, 
+                    content,
+                    start_date: toEsDate(finalStartDate),
+                    end_date: toEsDate(finalEndDate),
                     is_start_time_set,
                     is_end_time_set,
                     region: isOfflineEvent ? region : null,
                     district: isOfflineEvent ? district : null,
                     link: link || null,
-                    is_verified: false, ai_verified: !!aiVerified,
-                    created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+                    is_verified: false,
+                    ai_verified: !!aiVerified,
+                    suggest: buildSuggestInput(title, topics),
+                    // [추가] 검색 결과 썸네일을 위해 첫 번째 이미지 URL 저장
+                    thumbnail: imageUrls.length > 0 ? imageUrls[0] : null,
+                    created_at: toEsDate(new Date())
                 }
             });
-        } catch (esErr) { console.error('ELK Indexing Error:', esErr); }
+            console.log(`✅ ELK Indexing Success: ID ${newBoardId}`);
+        } catch (esErr) { 
+            console.error('❌ ELK Indexing Error 상세:', esErr.meta?.body?.error || esErr.message); 
+        }
 
-        return success(res, { postId: newBoardId, imageUrls }, '게시글이 성공적으로 등록되었습니다.');
+        return success(res, { postId: newBoardId }, '등록되었습니다.');
     } catch (error) {
         if (connection) await connection.rollback();
         return fail(res, error.message, 400);
@@ -163,6 +210,8 @@ exports.createPost = async (req, res) => {
         connection.release();
     }
 };
+
+
 /**
  * 2. 게시글 수정 (Update)
  */
@@ -251,23 +300,26 @@ exports.updatePost = async (req, res) => {
         // [7] ELK 실시간 업데이트
         try {
             await esClient.update({
-                index: 'boards', id: id.toString(),
+                index: 'boards', 
+                id: id.toString(),
+                refresh: true,
                 doc: { 
                     participation_type, title, topics, content, 
-                    start_date: finalStartDate,
-                    end_date: finalEndDate,
+                    start_date: toEsDate(finalStartDate),
+                    end_date: toEsDate(finalEndDate),
                     is_start_time_set,
                     is_end_time_set,
                     region: isOfflineEvent ? region : null,
                     district: isOfflineEvent ? district : null,
                     ai_verified: !!existingAiVerified,
-                    updated_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
-                    // 필요하다면 이미지 필드도 ELK에 업데이트
+                    suggest: buildSuggestInput(title, topics),
+                    // [추가] 수정된 이미지 중 첫 번째를 썸네일로 반영
+                    thumbnail: finalImageUrls.length > 0 ? finalImageUrls[0] : null,
+                    updated_at: toEsDate(new Date())
                 }
             });
         } catch (esErr) { console.error('ELK Update Error:', esErr); }
-
-        return success(res, { imageUrls: finalImageUrls }, '수정 완료되었습니다.');
+            return success(res, { imageUrls: finalImageUrls }, '수정 완료되었습니다.');
     } catch (error) {
         if (connection) await connection.rollback();
         return fail(res, error.message, 400);
