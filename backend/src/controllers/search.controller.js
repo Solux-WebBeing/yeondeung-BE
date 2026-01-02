@@ -2,79 +2,120 @@ const { Client } = require('@elastic/elasticsearch');
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 const pool = require('../../db');
 
+// [Helper] 날짜 포맷 변환 (yyyy-MM-dd HH:mm:ss)
+const toEsDate = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+// [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수
+async function enrichDataWithMySQL(results) {
+    if (!results || results.length === 0) return [];
+    
+    const boardIds = results.map(post => post.id);
+
+    // 1. 응원수 조회
+    const [totalCheers] = await pool.query(
+        `SELECT board_id, COUNT(*) as count FROM cheers WHERE board_id IN (?) GROUP BY board_id`,
+        [boardIds]
+    );
+    const cheerMap = totalCheers.reduce((acc, cur) => { acc[cur.board_id] = cur.count; return acc; }, {});
+
+    // 2. 의제별 연대자 통계 조회
+    const [topicStats] = await pool.query(`
+        SELECT bt.board_id, t.name AS topic_name, COUNT(DISTINCT c.user_id) AS individual_topic_count
+        FROM board_topics bt JOIN topics t ON bt.topic_id = t.id
+        LEFT JOIN user_interests ui ON bt.topic_id = ui.topic_id
+        LEFT JOIN cheers c ON ui.user_id = c.user_id AND bt.board_id = c.board_id
+        WHERE bt.board_id IN (?) GROUP BY bt.board_id, bt.topic_id`, [boardIds]);
+
+    const topicStatsMap = topicStats.reduce((acc, cur) => {
+        if (!acc[cur.board_id]) acc[cur.board_id] = [];
+        acc[cur.board_id].push({ name: cur.topic_name, count: cur.individual_topic_count });
+        return acc;
+    }, {});
+
+    // 3. 썸네일 이미지 조회
+    const [boardImages] = await pool.query(
+        `SELECT board_id, image_url FROM board_images WHERE board_id IN (?) ORDER BY id ASC`,
+        [boardIds]
+    );
+    const imageMap = {};
+    boardImages.forEach(img => { if (!imageMap[img.board_id]) imageMap[img.board_id] = img.image_url; });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return results.map(post => {
+        const stats = topicStatsMap[post.id] || [];
+        const selected = stats.length > 0 ? stats[Math.floor(Math.random() * stats.length)] : { name: "사회", count: 0 };
+        
+        let dDay = "상시";
+        if (post.end_date) {
+            const endDate = new Date(post.end_date);
+            const diffDays = Math.ceil((new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()) - today) / (1000 * 60 * 60 * 24));
+            dDay = diffDays < 0 ? "마감" : diffDays === 0 ? "D-0" : `D-${diffDays}`;
+        }
+
+        const format = (d, t) => d ? `${new Date(d).toISOString().split('T')[0].replace(/-/g, '. ')}${t ? ' ' + d.substring(11, 16) : ''}` : "";
+
+        return {
+            id: post.id,
+            title: post.title,
+            thumbnail: imageMap[post.id] || "https://your-domain.com/assets/default-thumbnail.png",
+            topics: post.topics ? (Array.isArray(post.topics) ? post.topics : post.topics.split(',').map(t => t.trim())) : [],
+            location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
+            dateDisplay: (post.start_date && post.end_date) ? `${format(post.start_date, post.is_start_time_set)} ~ ${format(post.end_date, post.is_end_time_set)}` : "상시 진행",
+            cheerCount: cheerMap[post.id] || 0,
+            dDay,
+            interestMessage: `${selected.name} 의제에 관심이 있는 ${selected.count}명이 연대합니다!`
+        };
+    });
+}
+
 /**
- * 1. 게시글 통합 검색 API (정밀 랜덤 의제 버전)
+ * 1. 게시글 통합 검색 (기간 필터 강화 버전)
  */
 exports.searchPosts = async (req, res) => {
     try {
-        if (!req.user) {
-            return res.status(401).json({ success: false, message: "로그인이 필요한 서비스입니다." });
-        }
-
-        const { 
-            q, topics, region, district, 
-            participation_type, host_type, 
-            page = 1 
-        } = req.query;
-
-        const size = 8; 
+        const { q, topics, region, district, participation_type, host_type, start_date, end_date, page = 1 } = req.query;
+        const size = 8;
         const from = (page - 1) * size;
 
         const esQuery = { bool: { must: [], filter: [] } };
 
-        // 1. 기본 필터: 최근 30일 데이터
-        esQuery.bool.filter.push({
-            range: { end_date: { gte: "now-30d/d" } }
-        });         
+        if (start_date && end_date) {
+            esQuery.bool.filter.push({ range: { start_date: { gte: toEsDate(start_date) } } });
+            esQuery.bool.filter.push({ range: { end_date: { lte: toEsDate(end_date) } } });
+        } else {
+            esQuery.bool.filter.push({ range: { end_date: { gte: "now-30d/d" } } });
+        }
 
-        // 2. 검색어 처리 (Must)
+        const addMultiFilter = (field, valueString) => {
+            if (valueString) {
+                const values = valueString.split(',').map(v => v.trim()).filter(Boolean);
+                if (values.length > 0) {
+                    esQuery.bool.filter.push({
+                        bool: { should: values.map(v => ({ match_phrase: { [field]: v } })), minimum_should_match: 1 }
+                    });
+                }
+            }
+        };
+        ['topics', 'region', 'district', 'participation_type', 'host_type'].forEach(f => addMultiFilter(f, req.query[f]));
+
         if (q && q.trim() !== "") {
             esQuery.bool.must.push({
                 multi_match: {
                     query: q,
-                    fields: ["title^10", "title.partial^1", "content^3", "content.partial^0.5"],
-                    type: "most_fields", 
-                    operator: "and",
-                    minimum_should_match: "2<75%"
+                    fields: ["title^5", "topics^3", "content"],
+                    type: "most_fields",
+                    operator: "or"
                 }
             });
         }
 
-        // --- 다중 선택(OR 연산) 처리 유틸리티 함수 ---
-        const addMultiFilter = (field, valueString) => {
-            if (valueString) {
-                const values = valueString.split(',').map(v => v.trim()).filter(v => v !== "");
-                if (values.length > 0) {
-                    // terms 쿼리는 자동으로 해당 배열 내의 값 중 하나라도 일치하면 매칭(OR)합니다.
-                    esQuery.bool.filter.push({ terms: { [field]: values } });
-                }
-            }
-        };
-
-        // 3. 의제(Topics) 필터 (기존 로직 유지 - 콤마 분리형 필드일 경우 대비)
-        if (topics) {
-            const topicList = topics.split(',').map(t => t.trim()).filter(t => t !== "");
-            if (topicList.length > 0) {
-                esQuery.bool.filter.push({
-                    bool: { 
-                        should: topicList.map(topic => ({ match_phrase: { topics: topic } })), 
-                        minimum_should_match: 1 
-                    }
-                });
-            }
-        }
-
-        // 4. 지역(Region/District) 다중 선택 처리
-        addMultiFilter('region', region);
-        addMultiFilter('district', district);
-
-        // 5. 참여 방식 다중 선택 처리
-        addMultiFilter('participation_type', participation_type);
-
-        // 6. 주최자 유형 다중 선택 처리
-        addMultiFilter('host_type', host_type);
-
-        // --- [이하 Elasticsearch 실행 및 정렬 로직 동일] ---
         const response = await esClient.search({
             index: 'boards',
             from, size,
@@ -86,103 +127,78 @@ exports.searchPosts = async (req, res) => {
                         script: {
                             lang: "painless",
                             source: `
-                                if (doc['end_date'].size() == 0) return 2;
-                                def end = doc['end_date'].value.toString().substring(0, 10);
-                                return end == params.today ? 0 : 1;
+                                if (doc['end_date'].size() == 0) return 1;
+                                long now = params.now;
+                                long end = doc['end_date'].value.toInstant().toEpochMilli();
+                                return end >= now ? 0 : 2;
                             `,
-                            params: { today: new Date().toISOString().substring(0, 10) }
+                            params: { now: new Date().getTime() }
                         },
                         order: "asc"
                     }
                 },
-                { _score: { order: "desc" } },
-                { created_at: { order: "desc" } }
+                { "end_date": { "order": "asc", "missing": "_last", "unmapped_type": "date" } },
+                { "_score": { "order": "desc" } }
             ]
         });
 
-        // --- [이하 MySQL 조인 및 가공 로직 동일] ---
-        // (생략: 기존 코드와 동일하게 처리하시면 됩니다.)
-        const total = response.hits.total.value;
-        const results = response.hits.hits.map(hit => hit._source);
-        if (total === 0) return res.status(200).json({ success: true, total: 0, data: [] });
-
-        const boardIds = results.map(post => post.id);
-
-        const [totalCheers] = await pool.query(
-            `SELECT board_id, COUNT(*) as count FROM cheers WHERE board_id IN (?) GROUP BY board_id`,
-            [boardIds]
-        );
-        const cheerMap = totalCheers.reduce((acc, cur) => { acc[cur.board_id] = cur.count; return acc; }, {});
-
-        const [topicStats] = await pool.query(`
-            SELECT bt.board_id, t.name AS topic_name, COUNT(DISTINCT c.user_id) AS individual_topic_count
-            FROM board_topics bt
-            JOIN topics t ON bt.topic_id = t.id
-            LEFT JOIN user_interests ui ON bt.topic_id = ui.topic_id
-            LEFT JOIN cheers c ON ui.user_id = c.user_id AND bt.board_id = c.board_id
-            WHERE bt.board_id IN (?)
-            GROUP BY bt.board_id, bt.topic_id
-        `, [boardIds]);
-
-        const topicStatsMap = topicStats.reduce((acc, cur) => {
-            if (!acc[cur.board_id]) acc[cur.board_id] = [];
-            acc[cur.board_id].push({ name: cur.topic_name, count: cur.individual_topic_count });
-            return acc;
-        }, {});
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const cardData = results.map(post => {
-            const totalCount = cheerMap[post.id] || 0;
-            const stats = topicStatsMap[post.id] || [];
-            const selected = stats.length > 0 ? stats[Math.floor(Math.random() * stats.length)] : { name: "사회", count: 0 };
-            
-            let dDay = "상시";
-            let isTodayEnd = false;
-            if (post.end_date) {
-                const endDate = new Date(post.end_date);
-                const diffDays = Math.ceil((new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()) - today) / (1000 * 60 * 60 * 24));
-                dDay = diffDays < 0 ? "마감" : diffDays === 0 ? "D-0" : `D-${diffDays}`;
-                isTodayEnd = diffDays === 0;
-            }
-
-            const formatDisplayDate = (dateStr, isTimeSet) => {
-                if (!dateStr) return "";
-                const date = new Date(dateStr);
-                const ymd = date.toISOString().split('T')[0].replace(/-/g, '. ');
-                return isTimeSet ? `${ymd} ${dateStr.substring(11, 16)}` : ymd;
-            };
-
-            return {
-                id: post.id,
-                title: post.title,
-                topics: post.topics ? post.topics.split(',').map(t => t.trim()) : [],
-                location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
-                dateDisplay: (post.start_date && post.end_date) 
-                    ? `${formatDisplayDate(post.start_date, post.is_start_time_set)} ~ ${formatDisplayDate(post.end_date, post.is_end_time_set)}` 
-                    : "상시 진행",
-                cheerCount: totalCount,
-                dDay,
-                isTodayEnd,
-                interestMessage: `${selected.name} 의제에 관심이 있는 ${selected.count}명이 연대합니다!`
-            };
-        });
-
-        res.status(200).json({ success: true, total, currentPage: parseInt(page), totalPages: Math.ceil(total / size), data: cardData });
+        const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source));
+        res.status(200).json({ success: true, total: response.hits.total.value, currentPage: parseInt(page), totalPages: Math.ceil(response.hits.total.value / size), data: cardData });
 
     } catch (error) {
-        console.error('Search Controller Error:', error);
-        res.status(500).json({ success: false, message: '검색 엔진 서버 오류' });
+        console.error('Search Error:', error);
+        res.status(500).json({ success: false, message: '검색 엔진 오류' });
     }
 };
 
 /**
- * 2. 실시간 추천 검색어 API (생략 없이 유지)
+ * 2. 전체 게시글 조회 API (8개 페이징 + 마감순 정렬)
+ */
+exports.getAllPosts = async (req, res) => {
+    try {
+        const { page = 1 } = req.query;
+        const size = 8;
+        const from = (page - 1) * size;
+
+        const response = await esClient.search({
+            index: 'boards',
+            from, size,
+            query: { match_all: {} },
+            sort: [
+                {
+                    _script: {
+                        type: "number",
+                        script: {
+                            lang: "painless",
+                            source: `
+                                if (doc['end_date'].size() == 0) return 1;
+                                long now = params.now;
+                                long end = doc['end_date'].value.toInstant().toEpochMilli();
+                                return end >= now ? 0 : 2;
+                            `,
+                            params: { now: new Date().getTime() }
+                        },
+                        order: "asc"
+                    }
+                },
+                { "end_date": { "order": "asc", "missing": "_last" } },
+                { "created_at": { "order": "desc" } }
+            ]
+        });
+
+        const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source));
+        res.status(200).json({ success: true, total: response.hits.total.value, currentPage: parseInt(page), totalPages: Math.ceil(response.hits.total.value / size), data: cardData });
+    } catch (error) {
+        console.error('GetAllPosts Error:', error);
+        res.status(500).json({ success: false, message: '전체 목록 로드 실패' });
+    }
+};
+
+/**
+ * 3. 실시간 추천 검색어 API
  */
 exports.getSuggestions = async (req, res) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: "로그인이 필요합니다." });
         const { q } = req.query;
         if (!q || q.trim().length < 1) return res.status(200).json({ success: true, data: [] });
 

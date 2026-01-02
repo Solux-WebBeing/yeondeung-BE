@@ -35,7 +35,7 @@ router.get('/ours', verifyToken, mainController.getOurs);
  * @swagger
  * /api/main/realtime:
  *   get:
- *     summary: "실시간 HOT 연대 (누적 응원순 6건)"
+ *     summary: "실시간 HOT 연대 (24시간 누적 응원순 6건)"
  *     tags: [Main]
  *     security:
  *       - bearerAuth: []
@@ -49,7 +49,7 @@ router.get('/realtime', verifyToken, mainController.getRealtime);
  * @swagger
  * /api/main/imminent:
  *   get:
- *     summary: "마감 임박 연대 (24시간 이내 마감 6건)"
+ *     summary: "마감 임박 연대 (24시간 이내 마감)"
  *     tags: [Main]
  *     security:
  *       - bearerAuth: []
