@@ -160,9 +160,14 @@ exports.createPost = async (req, res) => {
         // [6] 알림 전송 로직 호출
         await sendActivityNotifications(connection, {
             id: newBoardId,
-            participation_type, title, topics, 
-            start_date: finalStartDate, end_date: finalEndDate, 
-            region, district,
+            author_id: user_id,
+            participation_type, 
+            title, 
+            topics, 
+            start_date: finalStartDate, 
+            end_date: finalEndDate, 
+            region, 
+            district,
             images: imageUrls
         });
 

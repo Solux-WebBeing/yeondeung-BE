@@ -30,3 +30,30 @@ exports.getMyNotifications = async (req, res) => {
         if (connection) connection.release();
     }
 };
+
+/**
+ * 모든 알림 일괄 읽음 처리
+ */
+exports.markAllNotificationsAsRead = async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const userId = req.user.id;
+
+        // 해당 사용자의 아직 읽지 않은(is_read = false) 알림을 모두 true로 변경
+        const sql = `
+            UPDATE notifications 
+            SET is_read = true 
+            WHERE user_id = ? AND is_read = false
+        `;
+        
+        await connection.query(sql, [userId]);
+
+        return success(res, null, '모든 알림이 읽음 처리되었습니다.');
+    } catch (error) {
+        console.error('알림 읽음 처리 에러:', error);
+        return fail(res, '알림 상태를 업데이트하지 못했습니다.', 500);
+    } finally {
+        if (connection) connection.release();
+    }
+};

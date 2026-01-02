@@ -25,7 +25,8 @@ const getRandomMessage = (topicName) => {
  * 게시글 등록 시 관련 유저들에게 알림 생성
  */
 exports.sendActivityNotifications = async (connection, boardData) => {
-    const { id, participation_type, title, topics, start_date, end_date, region, district, images } = boardData;
+    // boardData에서 작성자 ID(author_id)를 추가로 받습니다.
+    const { id, author_id, participation_type, title, topics, start_date, end_date, region, district, images } = boardData;
     
     // 1. 해당 게시글의 의제 ID 목록 가져오기
     const topicNames = topics.split(',').map(t => t.trim());
@@ -33,10 +34,11 @@ exports.sendActivityNotifications = async (connection, boardData) => {
     const topicIds = topicRows.map(r => r.id);
     const firstTopicName = topicRows[0]?.name || '';
 
-    // 2. 관심 분야가 일치하는 사용자 조회 (중복 방지 DISTINCT)
+    // 2. 관심 분야가 일치하는 사용자 조회 (작성자 본인 제외 추가)
     const [targetUsers] = await connection.query(
-        `SELECT DISTINCT user_id FROM user_interests WHERE topic_id IN (?)`,
-        [topicIds]
+        `SELECT DISTINCT user_id FROM user_interests 
+         WHERE topic_id IN (?) AND user_id != ?`, // 작성자 제외 조건 추가
+        [topicIds, author_id]
     );
 
     if (targetUsers.length === 0) return;
@@ -53,7 +55,7 @@ exports.sendActivityNotifications = async (connection, boardData) => {
             [user.user_id, id, participation_type, title, thumbnailUrl, start_date, end_date, region, district, message]
         );
 
-        // 4. 사용자별 최대 10개 유지 (11번째 삭제)
+        // 4. 사용자별 최대 10개 유지 (생략 가능, 기존 로직 유지)
         await connection.query(
             `DELETE FROM notifications 
              WHERE user_id = ? 
