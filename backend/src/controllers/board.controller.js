@@ -3,8 +3,8 @@ const redis = require('../config/redis.client');
 const { success, fail } = require('../util/response.util');
 const { Client } = require('@elastic/elasticsearch');
 const { sendActivityNotifications } = require('../util/notification.util');
-const axios = require('form-data');
-const FromData = require('form-data');
+const axios = require('axios');
+const FormData = require('form-data');
 
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 
@@ -22,18 +22,17 @@ const validateTimeFormat = (time) => {
  */
 const uploadToImgBB = async (fileBuffer) => {
     try {
-        const apiKey = process.env.IMGBB_API_KEY; // .env에 API 키 저장 필요
+        const apiKey = process.env.IMGBB_API_KEY;
         if (!apiKey) throw new Error('ImgBB API Key가 설정되지 않았습니다.');
 
-        const formData = new FormData();
-        // ImgBB는 base64 문자열을 'image' 필드로 받습니다.
+        const formData = new FormData(); 
         formData.append('image', fileBuffer.toString('base64'));
 
         const response = await axios.post(`https://api.imgbb.com/1/upload?key=${apiKey}`, formData, {
-            headers: formData.getHeaders(),
+            headers: formData.getHeaders(), // 'form-data' 패키지 객체에서 호출
         });
 
-        return response.data.data.url; // 업로드된 이미지 URL 반환
+        return response.data.data.url;
     } catch (error) {
         console.error('ImgBB Upload Error:', error.response?.data || error.message);
         throw new Error('이미지 업로드 중 오류가 발생했습니다.');
@@ -128,7 +127,8 @@ exports.createPost = async (req, res) => {
             id: newBoardId,
             participation_type, title, topics, 
             start_date: finalStartDate, end_date: finalEndDate, 
-            region, district, images
+            region, district,
+            images: imageUrls
         });
 
         await connection.commit();
