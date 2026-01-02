@@ -2,6 +2,7 @@ const pool = require('../../db');
 const redis = require('../config/redis.client');
 const { success, fail } = require('../util/response.util');
 const { Client } = require('@elastic/elasticsearch');
+const { sendActivityNotifications } = require('../util/notification.util');
 
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 
@@ -78,6 +79,14 @@ exports.createPost = async (req, res) => {
             const imageValues = images.map(imgUrl => [newBoardId, imgUrl]);
             await connection.query(`INSERT INTO board_images (board_id, image_url) VALUES ?`, [imageValues]);
         }
+
+        // [6] 알림 전송 로직 호출
+        await sendActivityNotifications(connection, {
+            id: newBoardId,
+            participation_type, title, topics, 
+            start_date: finalStartDate, end_date: finalEndDate, 
+            region, district, images
+        });
 
         await connection.commit();
 
@@ -346,7 +355,13 @@ exports.getBoardDetail = async (req, res) => {
         `;
         
         const [boardRows] = await connection.query(boardSql, [id]);
-        if (boardRows.length === 0) return res.status(404).json({ success: false, message: '존재하지 않는 게시글입니다.' });
+        if (boardRows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                code: 'BOARD_DELETED',
+                message: '삭제된 게시글입니다.' 
+            });
+        }
 
         const board = boardRows[0];
         board.is_author = currentUserId === board.user_id;

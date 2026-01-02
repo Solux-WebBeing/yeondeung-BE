@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user.controller');
 const { verifyToken, verifyTokenOptional } = require('../middlewares/auth.middleware');
-// const authMiddleware = require('../middlewares/auth.middleware');
+const notificationController = require('../controllers/notification.controller');
 
 /**
  * @swagger
@@ -380,6 +380,75 @@ router.post('/setup/organization', verifyToken, userController.setupOrganization
  *         description: 토큰이 없거나 만료됨
  */
 router.post('/setup/individual', verifyToken, userController.setupIndividual);
+
+/**
+ * @swagger
+ * /api/users/notifications:
+ *   get:
+ *     summary: "알림 목록 조회"
+ *     description: "사용자의 관심 분야와 일치하는 새 활동 게시글 알림 목록을 최신순으로 최대 10개 조회합니다."
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: "알림 목록 조회 성공"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                         example: 1
+ *                       board_id:
+ *                         type: integer
+ *                         example: 101
+ *                       participation_type:
+ *                         type: string
+ *                         example: "집회"
+ *                       title:
+ *                         type: string
+ *                         example: "환경 보호를 위한 시민 모임"
+ *                       thumbnail_url:
+ *                         type: string
+ *                         example: "https://example.com/image.jpg"
+ *                       start_date:
+ *                         type: string
+ *                         example: "2025.12.20"
+ *                       end_date:
+ *                         type: string
+ *                         example: "2025.12.21"
+ *                       region:
+ *                         type: string
+ *                         example: "서울특별시"
+ *                       district:
+ *                         type: string
+ *                         example: "종로구"
+ *                       message:
+ *                         type: string
+ *                         example: "✨ 관심 가져주실만한 '환경' 의제 활동이에요!"
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2025-12-14T10:00:00Z"
+ *                 message:
+ *                   type: string
+ *                   example: "알림 조회 성공"
+ *       401:
+ *         description: "인증되지 않은 사용자"
+ *       500:
+ *         description: "서버 에러"
+ */
+router.get('/notifications', authMiddleware, notificationController.getMyNotifications);
 
 /**
  * @swagger
