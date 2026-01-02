@@ -171,7 +171,7 @@ exports.verifyEmailCode = async (req, res) => {
  * 5. 개인 회원가입
  */
 exports.registerIndividual = async (req, res) => {
-  const { email, userid, password, password_confirm, nickname, email_consent = false } = req.body;
+  const { email, userid, password, password_confirm, nickname, mailing_consent = false } = req.body;
   
   // 1. 유효성 검사
   if (!email || !userid || !password || !password_confirm || !nickname) {
@@ -219,8 +219,8 @@ exports.registerIndividual = async (req, res) => {
     const [userInsertResult] = await connection.query(userSql, ['INDIVIDUAL', userid, hashedPassword, email]);
     const newUserId = userInsertResult.insertId;
 
-    const profileSql = 'INSERT INTO individual_profiles (user_id, nickname, email_consent) VALUES (?, ?, ?)';
-    await connection.query(profileSql, [newUserId, nickname, email_consent]);
+    const profileSql = 'INSERT INTO individual_profiles (user_id, nickname, mailing_consent) VALUES (?, ?, ?)';
+    await connection.query(profileSql, [newUserId, nickname, mailing_consent]);
 
     await connection.commit();
 
@@ -443,7 +443,7 @@ exports.getMyProfile = async (req, res) => {
     
     if (user_type === 'INDIVIDUAL') {
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, u.role, ip.nickname, ip.email_consent 
+        SELECT u.id, u.userid, u.email, u.user_type, u.role, ip.nickname, ip.mailing_consent 
         FROM users u
         LEFT JOIN individual_profiles ip ON u.id = ip.user_id
         WHERE u.id = ?
