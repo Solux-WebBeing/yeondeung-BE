@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user.controller');
-const { verifyToken, verifyTokenOptional } = require('../middlewares/auth.middleware');
 const notificationController = require('../controllers/notification.controller');
+const { verifyToken, verifyTokenOptional } = require('../middlewares/auth.middleware');
 
 /**
  * @swagger
@@ -448,7 +448,7 @@ router.post('/setup/individual', verifyToken, userController.setupIndividual);
  *       500:
  *         description: "서버 에러"
  */
-router.get('/notifications', authMiddleware, notificationController.getMyNotifications);
+router.get('/notifications', verifyToken, notificationController.getMyNotifications);
 
 /**
  * @swagger
