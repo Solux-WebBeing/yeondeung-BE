@@ -13,6 +13,11 @@ services:
     # 필요하다면 로컬 소스 코드 마운트 추가
     # volumes:
     #   - .:/app 
+    environment:
+      NODE_ENV: 'development'
+    volumes:
+      - ./backend:/app          # 로컬의 backend 폴더를 컨테이너 /app에 동기화
+      - /app/node_modules       # node_modules는 동기화 제외
 
   elasticsearch:
     ports:
