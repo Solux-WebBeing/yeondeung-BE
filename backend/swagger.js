@@ -1,9 +1,15 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 
-// 환경 변수에 따라 기본 URL 설정 (없으면 로컬을 기본으로)
-const serverUrl = process.env.NODE_ENV === 'production' 
-  ? 'http://3.36.147.62:8000' 
-  : 'http://localhost:8000';
+// 두 서버 정보를 모두 정의합니다.
+const productionServer = {
+  url: 'http://3.36.147.62:8000',
+  description: '실제 배포 서버',
+};
+
+const localServer = {
+  url: 'http://localhost:8000',
+  description: '로컬 개발 서버',
+};
 
 const options = {
   definition: {
@@ -13,13 +19,11 @@ const options = {
       version: '1.0.0',
       description: '연등 : 연대의 등불 백엔드 API 문서입니다.',
     },
-    // 서버 설정을 동적으로 변경
-    servers: [
-      {
-        url: serverUrl,
-        description: process.env.NODE_ENV === 'production' ? '실제 배포 서버' : '로컬 개발 서버',
-      },
-    ],
+    // servers 배열에 두 개를 모두 넣어야 토글이 생깁니다.
+    // 현재 환경(production)에 따라 첫 번째 요소를 결정합니다.
+    servers: process.env.NODE_ENV === 'production' 
+      ? [productionServer, localServer] 
+      : [localServer, productionServer],
     components: {
       securitySchemes: {
         bearerAuth: {
