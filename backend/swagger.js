@@ -11,6 +11,7 @@ const options = {
     servers: [
       {
         url: 'http://localhost:8000', // 개발 서버
+        url: 'http://3.36.147.62:8000', // 배포 서버
       },
     ],
     // --- 인증 방식 정의 추가 ---
