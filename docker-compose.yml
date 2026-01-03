@@ -9,30 +9,26 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "3307:3306"
     networks:
       - yeondeung-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${DB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # 2. Redis 서비스
   redis:
     image: redis:alpine
     container_name: redis
-    ports:
-      - "6379:6379"
     networks:
       - yeondeung-net
 
-  # 2. YEONDEUNG-BE 앱 서비스
+  # 3. YEONDEUNG-BE 앱 서비스
   app:
-    container_name: yeondeung-app
     image: ${DOCKER_USER}/yeondeung-be:latest
-    ports:
-      - "8000:8000"
+    container_name: yeondeung-app
     depends_on:
       db:
         condition: service_healthy
@@ -42,15 +38,15 @@ services:
         condition: service_started
     networks:
       - yeondeung-net
-      - elk-net  # [중요] Elasticsearch와 통신하기 위해 추가
+      - elk-net
     environment:
       DB_HOST: 'db'
-      ELASTICSEARCH_NODE: 'http://elasticsearch:9200' # 앱에서 참조할 주소
+      ELASTICSEARCH_NODE: 'http://elasticsearch:9200'
       REDIS_HOST: 'redis'
     env_file:
       - .env
 
-  # 3. Elasticsearch (Nori 플러그인 포함 빌드)
+  # 4. Elasticsearch
   elasticsearch:
     image: ${DOCKER_USER}/yeondeung-es:latest
     container_name: elasticsearch
@@ -59,17 +55,13 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
     networks:
       - elk-net
 
-  # 4. Kibana
+  # 5. Kibana
   kibana:
     image: docker.elastic.co/kibana/kibana:8.10.2
     container_name: kibana
-    ports:
-      - "5601:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:

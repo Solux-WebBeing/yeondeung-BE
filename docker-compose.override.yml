@@ -1,0 +1,23 @@
+services:
+  db:
+    ports:
+      - "3307:3306" # 로컬에서 DB 접속용
+
+  redis:
+    ports:
+      - "6379:6379" # 로컬에서 Redis 모니터링용
+
+  app:
+    ports:
+      - "8000:8000" # 로컬 브라우저/포스트맨 접속용
+    # 필요하다면 로컬 소스 코드 마운트 추가
+    # volumes:
+    #   - .:/app 
+
+  elasticsearch:
+    ports:
+      - "9200:9200"
+
+  kibana:
+    ports:
+      - "5601:5601"

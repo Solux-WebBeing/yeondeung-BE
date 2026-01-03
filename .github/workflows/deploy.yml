@@ -40,6 +40,6 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd /home/ubuntu/yeondeung-be
-            sudo docker-compose pull
-            sudo docker-compose up -d
+            sudo -E docker-compose -f docker-compose.yaml pull
+            sudo -E docker-compose -f docker-compose.yaml up -d
             sudo docker image prune -f
