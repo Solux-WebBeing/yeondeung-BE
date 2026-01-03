@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mainController = require('../controllers/main.controller');
-const { verifyToken } = require('../middlewares/auth.middleware');
+const { verifyTokenOptional } = require('../middlewares/auth.middleware');
 
 /**
  * @swagger
@@ -29,13 +29,13 @@ const { verifyToken } = require('../middlewares/auth.middleware');
  *       200:
  *         description: "성공"
  */
-router.get('/ours', verifyToken, mainController.getOurs);
+router.get('/ours', verifyTokenOptional, mainController.getOurs);
 
 /**
  * @swagger
  * /api/main/realtime:
  *   get:
- *     summary: "실시간 HOT 연대 (24시간 누적 응원순 6건)"
+ *     summary: "실시간 HOT 연대 (24시간 누적 응원순 6건) - 비로그인 허용"
  *     tags: [Main]
  *     security:
  *       - bearerAuth: []
@@ -43,13 +43,13 @@ router.get('/ours', verifyToken, mainController.getOurs);
  *       200:
  *         description: "성공"
  */
-router.get('/realtime', verifyToken, mainController.getRealtime);
+router.get('/realtime', verifyTokenOptional, mainController.getRealtime);
 
 /**
  * @swagger
  * /api/main/imminent:
  *   get:
- *     summary: "마감 임박 연대 (24시간 이내 마감)"
+ *     summary: "마감 임박 연대 (24시간 이내 마감) - 비로그인 허용"
  *     tags: [Main]
  *     security:
  *       - bearerAuth: []
@@ -57,7 +57,7 @@ router.get('/realtime', verifyToken, mainController.getRealtime);
  *       200:
  *         description: "성공"
  */
-router.get('/imminent', verifyToken, mainController.getImminent);
+router.get('/imminent', verifyTokenOptional, mainController.getImminent);
 
 
 module.exports = router;
