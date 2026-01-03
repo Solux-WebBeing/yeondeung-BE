@@ -1,0 +1,60 @@
+name: "🚀 기능 개발"
+description: "개발이 확정된 기능에 대한 작업을 등록합니다."
+title: "[DEV] "
+labels: ["task", "in-progress"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🚀 기능 개발 작업 명세서
+        아래 항목에 맞춰 개발할 기능의 상세 내용을 작성해 주세요.
+  - type: textarea
+    id: feature-summary
+    attributes:
+      label: "기능 요약 (Summary)"
+      description: "개발할 기능이 무엇인지 한두 문장으로 명확하게 요약해 주세요."
+      placeholder: "예: 사용자가 프로필 페이지에서 자신의 닉네임을 수정하는 기능"
+    validations:
+      required: true
+  - type: textarea
+    id: implementation-details
+    attributes:
+      label: "구현 상세 (Implementation Details)"
+      description: "개발에 필요한 기술적인 상세 내용을 기재합니다. (API 명세, 사용할 라이브러리, DB 스키마 변경 등)"
+      placeholder: |
+        - PUT /api/v1/users/me/nickname
+        - Request Body: { "nickname": "새 닉네임" }
+        - `Users` 테이블에 `nickname` 컬럼 변경
+    validations:
+      required: true
+  - type: textarea
+    id: task-list
+    attributes:
+      label: "세부 작업 목록 (To-Do List)"
+      description: "이 기능을 완성하기 위해 필요한 세부 작업들을 마크다운 체크리스트 형식으로 자유롭게 작성해 주세요."
+      placeholder: |
+        - [ ] API 엔드포인트 개발
+        - [ ] 프론트엔드 UI 컴포넌트 구현
+        - [ ] 데이터베이스 마이그레이션
+        - [ ] 유닛 테스트 및 통합 테스트 작성
+        - [ ] 
+  - type: textarea
+    id: related-links
+    attributes:
+      label: "관련 자료 (Designs, Docs, etc.)"
+      description: "작업에 참고할 디자인 시안(Figma), 기획서, 회의록 등의 링크를 첨부해 주세요."
+      placeholder: |
+        - Figma: [Link]
+        - Notion: [Link]
+  - type: dropdown
+    id: assignee
+    attributes:
+      label: "담당자 (Assignee)"
+      description: "이 작업의 주 담당자를 지정해 주세요."
+      options:
+        - "곽해림"
+        - "송서현"
+        - "홍서현"
+        # 팀 멤버 목록을 여기에 추가하세요.
+    validations:
+      required: true
