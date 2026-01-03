@@ -40,6 +40,8 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd /home/ubuntu/yeondeung-be
-            sudo -E docker-compose -f docker-compose.yaml pull
-            sudo -E docker-compose -f docker-compose.yaml up -d
+            sudo docker-compose pull app elasticsearch
+            
+            sudo docker-compose up -d --force-recreate --remove-orphans
+            
             sudo docker image prune -f
