@@ -1,0 +1,45 @@
+name: YEONDEUNG CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Docker Hub Login
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 1. Backend 이미지 빌드 및 푸시
+      - name: Build and Push Backend
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:latest ./backend
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:latest
+
+      # 2. Elasticsearch(Nori) 이미지 빌드 및 푸시
+      - name: Build and Push Elasticsearch
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:latest ./elasticsearch
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /home/ubuntu/yeondeung-be
+            sudo docker-compose pull
+            sudo docker-compose up -d
+            sudo docker image prune -f
