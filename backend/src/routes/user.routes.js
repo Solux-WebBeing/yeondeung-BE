@@ -411,6 +411,25 @@ router.post('/withdraw', verifyToken, userController.withdrawMember);
 
 /**
  * @swagger
+ * /api/users/profile:
+ *   get:
+ *     summary: 내 정보 조회 (공통)
+ *     description: 로그인한 사용자의 상세 프로필 정보를 조회합니다.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       '200':
+ *         description: 조회 성공
+ *       '401':
+ *         description: 인증 실패
+ *       '404':
+ *         description: 사용자 정보 없음
+ */
+router.get('/profile', verifyToken, userController.getMyProfile); // <--- 이 줄을 추가하세요
+
+/**
+ * @swagger
  * /api/users/profile/org/edit-request:
  *   post:
  *     summary: "단체 정보 수정 요청 (단체)"
