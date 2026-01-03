@@ -27,6 +27,9 @@ services:
 
   # 3. YEONDEUNG-BE 앱 서비스
   app:
+    build: 
+      context: ./backend           # Dockerfile이 있는 위치 (현재 폴더)
+      dockerfile: Dockerfile
     image: ${DOCKER_USER}/yeondeung-be:latest
     container_name: yeondeung-app
     depends_on:
@@ -40,6 +43,7 @@ services:
       - yeondeung-net
       - elk-net
     environment:
+      NODE_ENV: 'production'
       DB_HOST: 'db'
       ELASTICSEARCH_NODE: 'http://elasticsearch:9200'
       REDIS_HOST: 'redis'
@@ -48,6 +52,9 @@ services:
 
   # 4. Elasticsearch
   elasticsearch:
+    build:
+      context: ./elasticsearch 
+      dockerfile: Dockerfile
     image: ${DOCKER_USER}/yeondeung-es:latest
     container_name: elasticsearch
     environment:
