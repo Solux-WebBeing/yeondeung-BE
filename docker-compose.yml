@@ -30,7 +30,7 @@ services:
   # 2. YEONDEUNG-BE 앱 서비스
   app:
     container_name: yeondeung-app
-    image: ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:latest
+    image: ${DOCKER_USER}/yeondeung-be:latest
     ports:
       - "8000:8000"
     depends_on:
@@ -52,7 +52,7 @@ services:
 
   # 3. Elasticsearch (Nori 플러그인 포함 빌드)
   elasticsearch:
-    image: ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:latest
+    image: ${DOCKER_USER}/yeondeung-es:latest
     container_name: elasticsearch
     environment:
       - node.name=elasticsearch

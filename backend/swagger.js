@@ -10,8 +10,12 @@ const options = {
     },
     servers: [
       {
-        url: 'http://localhost:8000', // 개발 서버
-        url: 'http://3.36.147.62:8000', // 배포 서버
+        url: 'http://localhost:8000',
+        description: '로컬 개발 서버',
+      },
+      {
+        url: 'http://3.36.147.62:8000', // 탄력적 IP 주소
+        description: '실제 배포 서버',
       },
     ],
     // --- 인증 방식 정의 추가 ---
