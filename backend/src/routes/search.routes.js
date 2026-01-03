@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const searchController = require('../controllers/search.controller');
-const { verifyToken } = require('../middlewares/auth.middleware');
+const { verifyTokenOptional } = require('../middlewares/auth.middleware');
 
 /**
  * @swagger
@@ -62,7 +62,7 @@ const { verifyToken } = require('../middlewares/auth.middleware');
  *       '401':
  *         description: 인증 실패
  */
-router.get('/', verifyToken, searchController.searchPosts);
+router.get('/',verifyTokenOptional, searchController.searchPosts);
 
 /**
  * @swagger
@@ -110,7 +110,7 @@ router.get('/', verifyToken, searchController.searchPosts);
  *       '500':
  *         description: 서버 오류
  */
-router.get('/all', verifyToken, searchController.getAllPosts);
+router.get('/all',verifyTokenOptional, searchController.getAllPosts);
 
 /**
  * @swagger
@@ -137,6 +137,6 @@ router.get('/all', verifyToken, searchController.getAllPosts);
  *       '401':
  *         description: 인증 실패
  */
-router.get('/suggest', verifyToken, searchController.getSuggestions);
+router.get('/suggest',verifyTokenOptional, searchController.getSuggestions);
 
 module.exports = router;

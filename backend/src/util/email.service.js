@@ -178,7 +178,27 @@ const sendRejectionEmail = async (toEmail, orgName, rejectionReason) => {
 };
 
 /**
- * 4. 주기적 메일 발송 - 관심 분야 미응원 게시글
+ * 4. 커스텀 안내 이메일 발송 (정보 수정 승인/반려 알림 등)
+ */
+const sendCustomEmail = async (toEmail, subject, textContent) => {
+  const mailOptions = {
+    from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
+    to: toEmail,
+    subject: subject,
+    html: `
+      <div style="${CONTAINER_STYLE}">
+        <h2 style="color: ${BRAND_COLOR}; margin-bottom: 20px;">알림 안내</h2>
+        <p style="color: ${TEXT_COLOR}; line-height: 1.6; white-space: pre-wrap;">
+          ${textContent}
+        </p>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+        <p style="color: ${TEXT_COLOR}; font-weight: bold;">감사합니다.<br>연등 드림</p>
+      </div>
+    `,
+  };
+  
+/**
+ * 5. 주기적 메일 발송 - 관심 분야 미응원 게시글
  */
 const sendInterestPostEmail = async (toEmail, userName, posts) => {
   const mailOptions = {
@@ -186,10 +206,15 @@ const sendInterestPostEmail = async (toEmail, userName, posts) => {
     to: toEmail,
     subject: '[연등] 나의 관심 분야의 새로운 게시글',
     html: getInterestPostTemplate(userName, posts),
-  };
 
   try {
     await transporter.sendMail(mailOptions);
+    console.log(`[Email Service] Custom email sent to: ${toEmail}`);
+  } catch (error) {
+    console.error(`[Email Service] Error sending custom email: ${toEmail}`, error);
+    throw new Error('안내 이메일 발송에 실패했습니다.');
+  }
+};
     console.log(`[Email Service] Interest posts email sent to: ${toEmail}`);
   } catch (error) {
     console.error(`[Email Service] Error sending interest posts email: ${toEmail}`, error);
@@ -198,7 +223,7 @@ const sendInterestPostEmail = async (toEmail, userName, posts) => {
 };
 
 /**
- * 5. 주기적 메일 발송 - 인기 게시글
+ * 6. 주기적 메일 발송 - 인기 게시글
  */
 const sendPopularPostEmail = async (toEmail, userName, posts) => {
   const mailOptions = {
@@ -482,6 +507,7 @@ module.exports = {
   sendRejectionEmail,
   sendInterestPostEmail,
   sendPopularPostEmail,
+  sendCustomEmail,
 };
 
 // 이메일 간편 테스트 용
@@ -535,4 +561,3 @@ module.exports = {
   sendApprovalEmail,
   sendRejectionEmail,
 };
-*/

@@ -1,3 +1,4 @@
+-- Active: 1767439132581@@127.0.0.1@3307@yeondeung-db
 -- 외래 키 검사 비활성화 (테이블 삭제 순서 무시)
 SET FOREIGN_KEY_CHECKS = 0;
 
@@ -65,3 +66,5 @@ CREATE TABLE email_verifications (
 
 -- 외래 키 검사 재활성화
 SET FOREIGN_KEY_CHECKS = 1;
+
+UPDATE users SET role = 'ADMIN' WHERE userid = 'thdtjgus';

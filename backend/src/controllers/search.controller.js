@@ -10,20 +10,34 @@ const toEsDate = (dateStr) => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
 
-// [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수
-async function enrichDataWithMySQL(results) {
+/**
+ * [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수
+ * @param {Array} results - Elasticsearch 검색 결과 리스트
+ * @param {Number|null} currentUserId - 로그인한 사용자의 ID (비로그인 시 null)
+ */
+async function enrichDataWithMySQL(results, currentUserId = null) {
     if (!results || results.length === 0) return [];
     
     const boardIds = results.map(post => post.id);
 
-    // 1. 응원수 조회
+    // 1. 전체 응원수 조회
     const [totalCheers] = await pool.query(
         `SELECT board_id, COUNT(*) as count FROM cheers WHERE board_id IN (?) GROUP BY board_id`,
         [boardIds]
     );
     const cheerMap = totalCheers.reduce((acc, cur) => { acc[cur.board_id] = cur.count; return acc; }, {});
 
-    // 2. 의제별 연대자 통계 조회
+    // 2. [로그인 시 전용] 사용자가 응원했는지 여부 조회
+    let userCheerSet = new Set();
+    if (currentUserId) {
+        const [userCheers] = await pool.query(
+            `SELECT board_id FROM cheers WHERE user_id = ? AND board_id IN (?)`,
+            [currentUserId, boardIds]
+        );
+        userCheerSet = new Set(userCheers.map(c => c.board_id));
+    }
+
+    // 3. 의제별 연대자 통계 조회
     const [topicStats] = await pool.query(`
         SELECT bt.board_id, t.name AS topic_name, COUNT(DISTINCT c.user_id) AS individual_topic_count
         FROM board_topics bt JOIN topics t ON bt.topic_id = t.id
@@ -37,7 +51,7 @@ async function enrichDataWithMySQL(results) {
         return acc;
     }, {});
 
-    // 3. 썸네일 이미지 조회
+    // 4. 썸네일 이미지 조회
     const [boardImages] = await pool.query(
         `SELECT board_id, image_url FROM board_images WHERE board_id IN (?) ORDER BY id ASC`,
         [boardIds]
@@ -69,6 +83,11 @@ async function enrichDataWithMySQL(results) {
             location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
             dateDisplay: (post.start_date && post.end_date) ? `${format(post.start_date, post.is_start_time_set)} ~ ${format(post.end_date, post.is_end_time_set)}` : "상시 진행",
             cheerCount: cheerMap[post.id] || 0,
+            
+            // [추가] 로그인 여부에 따른 동적 필드
+            is_cheered: userCheerSet.has(post.id), 
+            is_author: currentUserId === post.user_id, 
+
             dDay,
             interestMessage: `${selected.name} 의제에 관심이 있는 ${selected.count}명이 연대합니다!`
         };
@@ -76,7 +95,7 @@ async function enrichDataWithMySQL(results) {
 }
 
 /**
- * 1. 게시글 통합 검색 (기간 필터 강화 버전)
+ * 1. 게시글 통합 검색 (기간 필터 강화 + 비로그인 허용)
  */
 exports.searchPosts = async (req, res) => {
     try {
@@ -142,7 +161,8 @@ exports.searchPosts = async (req, res) => {
             ]
         });
 
-        const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source));
+        // req.user가 있으면 그 ID를, 없으면 null을 넘깁니다.
+        const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
         res.status(200).json({ success: true, total: response.hits.total.value, currentPage: parseInt(page), totalPages: Math.ceil(response.hits.total.value / size), data: cardData });
 
     } catch (error) {
@@ -152,7 +172,7 @@ exports.searchPosts = async (req, res) => {
 };
 
 /**
- * 2. 전체 게시글 조회 API (8개 페이징 + 마감순 정렬)
+ * 2. 전체 게시글 조회 (8개 페이징 + 마감순 정렬 + 비로그인 허용)
  */
 exports.getAllPosts = async (req, res) => {
     try {
@@ -186,7 +206,7 @@ exports.getAllPosts = async (req, res) => {
             ]
         });
 
-        const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source));
+        const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
         res.status(200).json({ success: true, total: response.hits.total.value, currentPage: parseInt(page), totalPages: Math.ceil(response.hits.total.value / size), data: cardData });
     } catch (error) {
         console.error('GetAllPosts Error:', error);

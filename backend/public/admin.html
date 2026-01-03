@@ -64,6 +64,23 @@
             </div>
         </div>
 
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-2xl font-semibold mb-6">📝 단체 정보 수정 요청</h2>
+            <div id="edit-table-container" class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">단체명</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">변경 내용 (소개/이메일/연락처/SNS)</th>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">승인</th>
+                        </tr>
+                    </thead>
+                    <tbody id="edit-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+                <div id="edit-empty" class="hidden text-center py-6 text-gray-500">대기 중인 수정 요청이 없습니다.</div>
+            </div>
+        </div>
+
         <div class="bg-white p-6 rounded-lg shadow-md">
             <h2 class="text-2xl font-semibold mb-6">🚨 신고 게시글 관리</h2>
             <div id="report-table-container" class="overflow-x-auto">
@@ -108,6 +125,8 @@
             const dashboardView = document.getElementById('dashboard-view');
             const orgTableBody = document.getElementById('org-table-body');
             const reportTableBody = document.getElementById('report-table-body');
+            const editTableBody = document.getElementById('edit-table-body'); // 추가됨
+            const editEmpty = document.getElementById('edit-empty');
             const messageBox = document.getElementById('message-box');
             
             // Modal Elements
@@ -117,7 +136,7 @@
             const modalDesc = document.getElementById('modal-desc');
             const modalConfirmBtn = document.getElementById('modal-confirm-btn');
 
-            let modalMode = ''; // 'ORG_REJECT' or 'REPORT_DELETE' or 'REPORT_REJECT'
+            let modalMode = ''; // 'ORG_REJECT' or 'REPORT_DELETE' or 'REPORT_REJECT' or 'EDIT_REJECT'
             let activeId = null; 
             let activeSubId = null; // boardId for reports
 
@@ -153,6 +172,7 @@
             const fetchAllData = () => {
                 fetchPendingOrgs();
                 fetchReports();
+                loadEditRequests();
             };
 
             document.getElementById('fetch-all-btn').addEventListener('click', fetchAllData);
@@ -231,6 +251,70 @@
                 if (res.ok) { alert('승인 완료'); fetchPendingOrgs(); }
             };
 
+            // 단체 정보 수정 요청 로드 함수
+            const loadEditRequests = async () => {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/admin/org-edit-requests`, {
+                        headers: { 'Authorization': `Bearer ${adminToken}` }
+                    });
+                    const result = await res.json();
+                    renderEditTable(result.data || []);
+                } catch (err) {
+                    console.error('수정 요청 로드 실패:', err);
+                }
+            };
+
+            // 단체 정보 수정 요청 렌더링
+            const renderEditTable = (data) => {
+                editTableBody.innerHTML = '';
+                editEmpty.classList.toggle('hidden', data.length > 0);
+                data.forEach(req => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 font-medium">${req.org_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-600">
+                            <div class="space-y-1">
+                                <p><strong>소개:</strong> ${req.new_introduction || '-'}</p>
+                                <p><strong>이메일:</strong> ${req.new_email || '-'}</p>
+                                <p><strong>연락처:</strong> ${req.new_contact_number || '-'}</p>
+                                <p><strong>SNS:</strong> ${req.new_sns_link || '-'}</p>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-center whitespace-nowrap">
+                            <button onclick="approveEdit(${req.id})" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition mr-2">승인</button>
+                            <button onclick="openModal('EDIT_REJECT', ${req.id}, '${req.org_name}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">반려</button>
+                        </td>
+                    `;
+                    editTableBody.appendChild(tr);
+                });
+            };
+
+            // 수정 승인 실행 함수
+            window.approveEdit = async (requestId) => {
+                if (!confirm('이 변경 사항을 승인하고 실제 프로필에 반영하시겠습니까?')) return;
+                
+                try {
+                    const res = await fetch(`${API_BASE_URL}/admin/approve-org-update`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${adminToken}` 
+                        },
+                        body: JSON.stringify({ requestId })
+                    });
+                    const result = await res.json();
+                    
+                    if (res.ok) {
+                        alert('승인 및 프로필 반영이 완료되었습니다.');
+                        loadEditRequests(); 
+                    } else {
+                        alert(result.message);
+                    }
+                } catch (err) {
+                    alert('처리 중 오류가 발생했습니다.');
+                }
+            };
+
             // 모달 열기
             window.openModal = (mode, id, name, subId = null) => {
                 modalMode = mode;
@@ -248,6 +332,9 @@
                 } else if (mode === 'REPORT_REJECT') {
                     modalTitle.textContent = '신고 내역 기각';
                     modalDesc.textContent = `게시글 [${name}]에 대한 신고를 기각하시겠습니까?`;
+                } else if (mode === 'EDIT_REJECT') { // 추가된 케이스
+                    modalTitle.textContent = '정보 수정 요청 반려';
+                    modalDesc.textContent = `'${name}'의 수정 요청을 반려하시겠습니까? 사유를 입력하세요.`;
                 }
             };
 
@@ -270,6 +357,9 @@
                 } else if (modalMode === 'REPORT_REJECT') {
                     endpoint = '/admin/reports/reject';
                     payload = { reportId: activeId, adminReason: reason };
+                } else if (modalMode === 'EDIT_REJECT') {
+                    endpoint = '/admin/reject-org-update';
+                    payload = { requestId: activeId, rejectReason: reason };
                 }
 
                 const res = await fetch(`${API_BASE_URL}${endpoint}`, {

@@ -517,6 +517,106 @@ exports.setupOrganization = async (req, res) => {
 };
 
 /**
+ * 단체 정보 수정 요청 (명세서의 변경 사항 없음 체크 포함)
+ */
+exports.requestOrgUpdate = async (req, res) => {
+  const { id } = req.user;
+  const { introduction, email, sns_link, contact_number } = req.body;
+  let connection;
+
+  try {
+    connection = await pool.getConnection();
+
+    // 1. DB에서 현재 저장된 최신 단체 정보 조회 (비교용)
+    const [currentRows] = await connection.query(
+      `SELECT op.introduction, u.email, op.sns_link, op.contact_number 
+       FROM organization_profiles op 
+       JOIN users u ON op.user_id = u.id 
+       WHERE u.id = ?`, [id]
+    );
+
+    if (currentRows.length === 0) {
+      return fail(res, '사용자 정보를 찾을 수 없습니다.', 404);
+    }
+
+    const current = currentRows[0];
+
+    // 2. 변경 사항 없음 체크 로직
+    // 입력된 값이 기존 값과 하나라도 다르면 true를 반환하는 함수
+    const isChanged = (newVal, oldVal) => {
+      // 값이 undefined이거나 null인 경우를 고려하여 문자열로 변환 후 비교
+      const normalizedNew = newVal ? String(newVal).trim() : "";
+      const normalizedOld = oldVal ? String(oldVal).trim() : "";
+      return normalizedNew !== normalizedOld;
+    };
+
+    const hasChanges = 
+      isChanged(introduction, current.introduction) ||
+      isChanged(email, current.email) ||
+      isChanged(sns_link, current.sns_link) ||
+      isChanged(contact_number, current.contact_number);
+
+    // 변경 사항이 전혀 없는 경우 예외 처리
+    if (!hasChanges) {
+      return fail(res, '변경된 내용이 없습니다.', 400); // 명세서 요구 토스트 문구
+    }
+
+    // 3. 글자 수 검증 (소개: 50자~200자)
+    if (introduction) {
+      if (introduction.length < 50 || introduction.length > 200) {
+        return fail(res, '최소 50자 이상, 최대 200자 이하로 입력해주세요', 400);
+      }
+    }
+
+    // 4. 검토 중 상태 확인 (중복 요청 방지)
+    const [pending] = await connection.query(
+      'SELECT id FROM organization_edit_requests WHERE user_id = ? AND status = "PENDING"', [id]
+    );
+    if (pending.length > 0) {
+      return fail(res, '이미 검토 중인 수정 요청이 있습니다.', 400);
+    }
+
+    // 5. 수정 요청 등록
+    await connection.query(
+      `INSERT INTO organization_edit_requests (user_id, new_introduction, new_email, new_sns_link, new_contact_number)
+       VALUES (?, ?, ?, ?, ?)`, [id, introduction, email, sns_link, contact_number]
+    );
+
+    return success(res, '수정 요청이 접수되었습니다. 검토 후 반영됩니다.'); // 명세서 요구 문구
+  } catch (error) {
+    console.error('Request Org Update Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * '내 활동' - 단체 활동 게시글 조회
+ */
+exports.getOrgActivities = async (req, res) => {
+  const { id } = req.user;
+  const page = parseInt(req.query.page) || 1;
+  const limit = 4; // 한 페이지 당 최대 4개
+  const offset = (page - 1) * limit;
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, title, created_at FROM boards WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [id, limit, offset]
+    );
+    
+    if (rows.length === 0 && page === 1) {
+      return success(res, '아직 등록한 연대 활동이 없어요.', { posts: [] });
+    }
+
+    return success(res, '활동 조회 성공', { posts: rows });
+  } catch (error) {
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  }
+};
+
+/**
  * 10. 개인 회원 최초 정보 설정
  */
 exports.setupIndividual = async (req, res) => {
@@ -604,6 +704,136 @@ exports.setupIndividual = async (req, res) => {
 };
 
 /**
+ * '내 정보' - 프로필 수정 (닉네임, 관심분야)
+ */
+exports.updateIndivProfile = async (req, res) => {
+  const { id } = req.user;
+  const { nickname, interests } = req.body;
+  let connection;
+
+  try {
+    if (!nickname) return fail(res, '닉네임을 입력해주세요.', 400);
+    if (!interests || interests.length === 0) return fail(res, '관심 분야를 최소 1개 이상 선택해 주세요.', 400);
+
+    // 중복 제거 및 유효성 검사
+    const uniqueInterests = [...new Set(interests)];
+
+    connection = await pool.getConnection();
+    
+    // id 대신 user_id를 조회하거나 존재 여부만 확인
+    const [existing] = await connection.query(
+      'SELECT user_id FROM individual_profiles WHERE nickname = ? AND user_id != ?', 
+      [nickname, id]
+    );
+    if (existing.length > 0) return fail(res, '이미 사용중인 닉네임입니다.', 409);
+
+    await connection.beginTransaction();
+
+    // 1. 프로필 테이블 업데이트 (닉네임 + interests JSON 컬럼 동시 업데이트)
+    const interestsJson = JSON.stringify(uniqueInterests);
+    await connection.query(
+      'UPDATE individual_profiles SET nickname = ?, interests = ? WHERE user_id = ?', 
+      [nickname, interestsJson, id]
+    );
+    
+    // 2. [정규화 테이블] user_interests 매핑 갱신
+    await connection.query('DELETE FROM user_interests WHERE user_id = ?', [id]);
+    
+    const topicSql = 'INSERT INTO user_interests (user_id, topic_id) SELECT ?, id FROM topics WHERE name IN (?)';
+    await connection.query(topicSql, [id, uniqueInterests]);
+
+    await connection.commit();
+    return success(res, '정보가 수정되었습니다.');
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error('Update Profile Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * '내 정보' - 메일링 수신 설정
+ */
+// exports.updateMailing = async (req, res) => {
+//   const { id } = req.user;
+//   const { mailing_consent, mailing_days, mailing_time } = req.body;
+
+//   try {
+//     let sql, params;
+//     if (mailing_consent) {
+//       // 수신 켜기 및 수정
+//       sql = 'UPDATE individual_profiles SET mailing_consent = true, mailing_days = ?, mailing_time = ? WHERE user_id = ?';
+//       params = [JSON.stringify(mailing_days), mailing_time, id];
+//     } else {
+//       // 수신 끄기 (초기화)
+//       sql = 'UPDATE individual_profiles SET mailing_consent = false, mailing_days = NULL, mailing_time = NULL WHERE user_id = ?';
+//       params = [id];
+//     }
+
+//     await pool.query(sql, params);
+//     return success(res, mailing_consent ? '메일링 설정이 저장되었습니다.' : '메일링 수신이 해제되었습니다.');
+//   } catch (error) {
+//     return fail(res, '서버 에러가 발생했습니다.', 500);
+//   }
+// };
+/**
+ * '내 정보' - 메일링 수신 설정
+ */
+exports.updateMailing = async (req, res) => {
+  const { id } = req.user;
+  const { mailing_consent, mailing_days, mailing_time } = req.body;
+
+  try {
+    let sql, params;
+    if (mailing_consent) {
+      // 시간 형식 변환 로직 (AM/PM -> HH:mm:ss)
+      const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
+      if (!mailing_time || !timeRegex.test(mailing_time)) {
+          return fail(res, '시간 형식이 올바르지 않습니다.', 400);
+      }
+
+      const [amPm, timePart] = mailing_time.split(' ');
+      let hour = parseInt(timePart.replace('시', ''));
+      if (amPm === 'PM' && hour !== 12) hour += 12;
+      else if (amPm === 'AM' && hour === 12) hour = 0;
+      const dbTime = `${String(hour).padStart(2, '0')}:00:00`;
+
+      // 수신 켜기 및 수정
+      sql = 'UPDATE individual_profiles SET mailing_consent = true, mailing_days = ?, mailing_time = ? WHERE user_id = ?';
+      params = [JSON.stringify(mailing_days), dbTime, id];
+    } else {
+      // 수신 끄기 (초기화)
+      sql = 'UPDATE individual_profiles SET mailing_consent = false, mailing_days = NULL, mailing_time = NULL WHERE user_id = ?';
+      params = [id];
+    }
+
+    await pool.query(sql, params);
+    return success(res, mailing_consent ? '메일링 설정이 저장되었습니다.' : '메일링 수신이 해제되었습니다.');
+  } catch (error) {
+    console.error('Update Mailing Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  }
+};
+
+// 개인 활동 조회
+exports.getIndividualActivities = async (req, res) => {
+  const { id } = req.user;
+  try {
+    const [posts] = await pool.query(
+      'SELECT id, title, created_at FROM boards WHERE user_id = ? ORDER BY created_at DESC LIMIT 4', [id]
+    );
+    const [cheers] = await pool.query(
+      'SELECT COUNT(*) as count FROM cheers WHERE user_id = ?', [id]
+    );
+    return success(res, '활동 조회 성공', { written_posts: posts, cheer_count: cheers[0].count });
+  } catch (error) {
+    return fail(res, '서버 에러', 500);
+  }
+};
+
+/**
  * 11. 로그아웃
  * JWT 특성상 서버에서 토큰을 삭제할 수는 없습니다.
  * 클라이언트에게 "로그아웃 처리됨" 응답을 보내면, 
@@ -615,5 +845,37 @@ exports.logout = async (req, res) => {
   } catch (error) {
     console.error('Server Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
+  }
+};
+
+/**
+ * 12. 회원 탈퇴
+ */
+exports.withdrawMember = async (req, res) => {
+  const { id } = req.user;
+  const { password } = req.body;
+  let connection;
+
+  try {
+    if (!password) return fail(res, '비밀번호를 입력해주세요.', 400);
+
+    connection = await pool.getConnection();
+    const [users] = await connection.query('SELECT password FROM users WHERE id = ?', [id]);
+    
+    // 1. 비밀번호 일치 확인
+    const isMatch = await bcrypt.compare(password, users[0].password);
+    if (!isMatch) return fail(res, '비밀번호가 일치하지 않습니다.', 400);
+
+    // 2. 최종 처리 (계정 및 활동 정보 영구 삭제)
+    await connection.beginTransaction();
+    await connection.query('DELETE FROM users WHERE id = ?', [id]);
+    await connection.commit();
+
+    return success(res, '회원 탈퇴가 완료되었습니다.');
+  } catch (error) {
+    if (connection) await connection.rollback();
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
   }
 };

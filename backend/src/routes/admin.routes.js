@@ -40,7 +40,7 @@ router.get(
  * @swagger
  * /api/admin/approve-organization:
  *   post:
- *     summary: (관리자) 기관 회원가입 승인
+ *     summary: "(관리자) 기관 회원가입 승인"
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
@@ -59,7 +59,7 @@ router.post(
  * @swagger
  * /api/admin/reject-organization:
  *   post:
- *     summary: (관리자) 기관 회원가입 거절
+ *     summary: "(관리자) 기관 회원가입 거절"
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
@@ -78,7 +78,7 @@ router.post(
  * @swagger
  * /api/admin/reports:
  *   get:
- *     summary: (관리자) 신고된 게시글 목록 조회
+ *     summary: "(관리자) 신고된 게시글 목록 조회"
  *     description: 상태가 RECEIVED인 모든 신고 내역과 게시글 정보를 조회합니다.
  *     tags: [Admin]
  *     security:
@@ -120,7 +120,7 @@ router.get(
  * @swagger
  * /api/admin/reports/delete:
  *   post:
- *     summary: (관리자) 신고 게시글 강제 삭제
+ *     summary: "(관리자) 신고 게시글 강제 삭제"
  *     description: 신고된 게시글을 삭제하고 신고 상태를 RESOLVED로 변경합니다.
  *     tags: [Admin]
  *     security:
@@ -164,7 +164,7 @@ router.post(
  * @swagger
  * /api/admin/reports/reject:
  *   post:
- *     summary: (관리자) 신고 기각 처리
+ *     summary: "(관리자) 신고 기각 처리"
  *     description: 신고 내용이 타당하지 않다고 판단될 경우, 게시글을 유지한 채 신고를 기각합니다.
  *     tags: [Admin]
  *     security:
@@ -200,5 +200,74 @@ router.post(
   adminController.rejectReport
 );
 
+/**
+ * @swagger
+ * /api/admin/org-edit-requests:
+ *   get:
+ *     summary: "(관리자) 단체 정보 수정 요청 목록 조회"
+ *     description: "상태가 PENDING인 모든 단체 정보 수정 요청 내역을 조회합니다."
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: "목록 조회 성공"
+ */
+router.get('/org-edit-requests', auth, isAdmin, adminController.getOrgEditRequests);
+
+/**
+ * @swagger
+ * /api/admin/approve-org-update:
+ *   post:
+ *     summary: "(관리자) 단체 정보 수정 요청 승인"
+ *     description: "신청된 변경 사항을 실제 프로필에 반영하고 요청 상태를 APPROVED로 변경합니다."
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [requestId]
+ *             properties:
+ *               requestId:
+ *                 type: integer
+ *                 description: "승인할 요청 ID"
+ *     responses:
+ *       200:
+ *         description: "수정 승인 및 반영 완료"
+ */
+router.post('/approve-org-update', auth, isAdmin, adminController.approveOrgEdit);
+
+/**
+ * @swagger
+ * /api/admin/reject-org-update:
+ *   post:
+ *     summary: "(관리자) 단체 정보 수정 요청 반려"
+ *     description: "신청된 변경 사항을 반려하고 반려 사유를 저장합니다. 해당 단체에 알림 메일이 발송됩니다."
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [requestId, rejectReason]
+ *             properties:
+ *               requestId:
+ *                 type: integer
+ *                 description: "반려할 요청 ID"
+ *               rejectReason:
+ *                 type: string
+ *                 description: "반려 사유"
+ *     responses:
+ *       200:
+ *         description: "수정 요청 반려 완료"
+ */
+router.post('/reject-org-update', auth, isAdmin, adminController.rejectOrgEdit);
 
 module.exports = router;
