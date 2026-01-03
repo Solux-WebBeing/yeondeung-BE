@@ -1,4 +1,8 @@
 const nodemailer = require('nodemailer');
+const path = require('path');
+
+// Base64 인코딩된 이미지 로드
+const EMAIL_ASSETS = require('../../email-assets-base64.json');
 
 // 1. Nodemailer Transporter 설정
 const transporter = nodemailer.createTransport({
@@ -192,6 +196,16 @@ const sendCustomEmail = async (toEmail, subject, textContent) => {
       </div>
     `,
   };
+  
+/**
+ * 5. 주기적 메일 발송 - 관심 분야 미응원 게시글
+ */
+const sendInterestPostEmail = async (toEmail, userName, posts) => {
+  const mailOptions = {
+    from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
+    to: toEmail,
+    subject: '[연등] 나의 관심 분야의 새로운 게시글',
+    html: getInterestPostTemplate(userName, posts),
 
   try {
     await transporter.sendMail(mailOptions);
@@ -201,11 +215,298 @@ const sendCustomEmail = async (toEmail, subject, textContent) => {
     throw new Error('안내 이메일 발송에 실패했습니다.');
   }
 };
+    console.log(`[Email Service] Interest posts email sent to: ${toEmail}`);
+  } catch (error) {
+    console.error(`[Email Service] Error sending interest posts email: ${toEmail}`, error);
+    throw new Error('관심 분야 게시글 이메일 발송에 실패했습니다.');
+  }
+};
+
+/**
+ * 6. 주기적 메일 발송 - 인기 게시글
+ */
+const sendPopularPostEmail = async (toEmail, userName, posts) => {
+  const mailOptions = {
+    from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
+    to: toEmail,
+    subject: '[연등] 이번 주 인기 게시글',
+    html: getPopularPostTemplate(userName, posts),
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email Service] Popular posts email sent to: ${toEmail}`);
+  } catch (error) {
+    console.error(`[Email Service] Error sending popular posts email: ${toEmail}`, error);
+    throw new Error('인기 게시글 이메일 발송에 실패했습니다.');
+  }
+};
+
+/**
+ * 제한 정책
+ */
+const stripHtmlImages = (html) => {
+  if (!html) return '';
+  return html.replace(/<img[^>]*>/gi, '');
+};
+
+const truncateHtmlContent = (html, maxLength = 600) => {
+  if (!html) return '';
+
+  let content = stripHtmlImages(html);
+  const textOnly = content.replace(/<[^>]+>/g, '').trim();
+
+  // 길이 제한
+  if (textOnly.length > maxLength) {
+    const truncated = textOnly.substring(0, maxLength);
+    return `<p>${truncated}...</p><p style="color: #797979; font-size: 14px; margin-top: 16px;">일부 내용만 미리 보여드립니다. 전체 내용은 연등에서 확인하실 수 있어요!</p>`;
+  }
+
+  return `<p>${textOnly}</p>`;
+};
+
+/**
+ * 관심 분야 미응원 게시글 이메일 템플릿
+ */
+const getInterestPostTemplate = (userName, posts) => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+
+  const postsHtml = posts.map(post => {
+    const startDate = post.start_date ? new Date(post.start_date).toLocaleDateString('ko-KR') : '';
+    const endDate = post.end_date ? new Date(post.end_date).toLocaleDateString('ko-KR') : '';
+    const truncatedContent = truncateHtmlContent(post.content, 600);
+
+    return `
+      <!-- 요약 카드 -->
+      <div style="max-width: 976px; margin: 0 auto 8px; overflow: hidden; border-radius: 10px; outline: 1px #E1E1E1 solid; outline-offset: -1px; padding: 20px; box-sizing: border-box;">
+        <!-- 제목 -->
+        <div style="color: #2E2E2E; font-size: 24px; font-family: Inter, sans-serif; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <span style="word-break: keep-all;">${post.title}</span>
+          <img style="width: 32px; height: 32px;" src="${EMAIL_ASSETS['단체인증뱃지.png']}" alt="단체인증뱃지" />
+        </div>
+
+        <!-- 요약 정보 카드 -->
+        <div style="display: flex; flex-direction: column; gap: 12px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300;">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
+            <div style="flex: 1 1 200px;"><span style="font-weight: 400;">참여 방식:</span> ${post.participation_type}</div>
+            ${startDate && endDate ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">진행 일자:</span> ${startDate} ~ ${endDate}</div>` : ''}
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
+            <div style="flex: 1 1 200px;"><span style="font-weight: 400;">의제:</span> ${post.topics}</div>
+            ${post.region && post.district ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">장소:</span> ${post.region} > ${post.district}</div>` : ''}
+          </div>
+          ${post.organization_name ? `<div><span style="font-weight: 400;">주최:</span> ${post.organization_name}</div>` : ''}
+          ${post.link ? `<div style="word-break: break-all;"><span style="font-weight: 400;">참여 링크:</span> <a href="${post.link}" style="color: #797979; text-decoration: underline;">${post.link}</a></div>` : ''}
+        </div>
+      </div>
+
+      <!-- 본문 -->
+      <div style="max-width: 976px; margin: 0 auto 32px; overflow: hidden; border-radius: 8px; outline: 1px #E1E1E1 solid; outline-offset: -1px; padding: 20px; font-family: Pretendard, sans-serif; line-height: 1.6; color: #2E2E2E; box-sizing: border-box;">
+        ${truncatedContent}
+      </div>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <div style="color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; margin-bottom: 16px;">
+          이 목소리에 힘을 보태고 싶다면, 아래 버튼을 눌러 응원봉을 밝혀주세요.
+        </div>
+        <a href="${post.link || '#'}" style="display: inline-flex; padding: 12px 24px; background: #FF7972; border-radius: 8px; align-items: center; gap: 12px; text-decoration: none;">
+          <img style="width: 48px; height: 48px;" src="${EMAIL_ASSETS['응원봉.png']}" alt="응원봉" />
+          <span style="color: #F8F8F8; font-size: 18px; font-family: Inter, sans-serif; font-weight: 600;">이 소식에 응원봉 밝히기</span>
+        </a>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        @media only screen and (max-width: 600px) {
+          .container { width: 100% !important; max-width: 100% !important; }
+          .content { padding: 16px !important; }
+          .logo { width: 120px !important; margin: 30px 0 0 16px !important; }
+        }
+      </style>
+    </head>
+    <body style="margin: 0; padding: 0; background: #f5f5f5;">
+      <div class="container" style="max-width: 1024px; margin: 0 auto; background: white; box-sizing: border-box;">
+        <img class="logo" style="width: 176px; height: auto; margin: 61px 0 0 23px;" src="${EMAIL_ASSETS['rogo_short.png']}" alt="연등 로고" />
+
+        <div style="text-align: right; padding-right: 24px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300; margin-top: -30px;">
+          ${year}년 ${month}월 ${day}일
+        </div>
+
+        <div class="content" style="margin: 30px 24px; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; line-height: 1.6;">
+          ${userName}님이 관심 있게 지켜보시는 ${posts[0]?.topics} 분야의 소식입니다.<br/>
+          바쁜 일상 속에서 놓치지 않도록, 연등이 전해드립니다.
+        </div>
+
+      ${postsHtml}
+
+      <!-- 구분선 -->
+      <div style="width: 972px; height: 1px; margin: 48px auto; background: #C3C3C3;"></div>
+
+      <!-- 하단 로고 -->
+      <div style="text-align: center; margin-top: 32px;">
+        <img style="width: 217px; height: auto;" src="${EMAIL_ASSETS['rogo_long.png']}" alt="연등 로고" />
+      </div>
+
+      <!-- 하단 문구 -->
+      <div style="text-align: center; color: #797979; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; margin-top: 16px;">
+        각자의 불빛을 모아 거대한 행동의 물결로
+      </div>
+      <div style="text-align: center; color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; margin-top: 8px;">
+        yeondeung.official@gmail.com
+      </div>
+
+      <div style="text-align: center; margin: 16px 0 32px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">메일링 설정 변경</a>
+        <span style="color: #797979;">|</span>
+        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">수신 거부</a>
+      </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+/**
+ * 인기 게시글 이메일 템플릿
+ */
+const getPopularPostTemplate = (userName, posts) => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  const post = posts[0];
+  const startDate = post.start_date ? new Date(post.start_date).toLocaleDateString('ko-KR') : '';
+  const endDate = post.end_date ? new Date(post.end_date).toLocaleDateString('ko-KR') : '';
+  const truncatedContent = truncateHtmlContent(post.content, 600);
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        @media only screen and (max-width: 600px) {
+          .container { width: 100% !important; max-width: 100% !important; }
+          .content { padding: 16px !important; }
+          .logo { width: 120px !important; margin: 30px 0 0 16px !important; }
+        }
+      </style>
+    </head>
+    <body style="margin: 0; padding: 0; background: #f5f5f5;">
+      <div class="container" style="max-width: 1024px; margin: 0 auto; background: white; box-sizing: border-box;">
+        <!-- 로고 -->
+        <img class="logo" style="width: 176px; height: auto; margin: 60px 0 0 24px;" src="${EMAIL_ASSETS['rogo_short.png']}" alt="연등 로고" />
+
+        <!-- 날짜 -->
+        <div style="text-align: right; padding-right: 24px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300; margin-top: -30px;">
+          ${year}년 ${month}월 ${day}일
+        </div>
+
+        <!-- 상단 설명 -->
+        <div class="content" style="margin: 33px 24px 0; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; line-height: 1.6;">
+          이번 주, 연등에서 가장 많은 분이 마음을 모아주신 소식입니다.<br/>
+          ${userName}님께도 이 연대의 흐름을 전해드립니다.
+        </div>
+
+        <!-- 요약 카드 -->
+        <div style="max-width: 976px; margin: 8px auto 0; overflow: hidden; border-radius: 10px; border: 1px solid #E1E1E1; padding: 20px; box-sizing: border-box;">
+          <!-- 제목 -->
+          <div style="color: #2E2E2E; font-size: 24px; font-family: Inter, sans-serif; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span style="word-break: keep-all;">${post.title}</span>
+            <img style="width: 32px; height: 32px;" src="${EMAIL_ASSETS['단체인증뱃지.png']}" alt="단체인증뱃지" />
+          </div>
+
+          <!-- 요약 정보 카드 -->
+          <div style="display: flex; flex-direction: column; gap: 12px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300;">
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
+              <div style="flex: 1 1 200px;"><span style="font-weight: 400;">참여 방식:</span> ${post.participation_type}</div>
+              ${startDate && endDate ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">진행 일자:</span> ${startDate} ~ ${endDate}</div>` : ''}
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
+              <div style="flex: 1 1 200px;"><span style="font-weight: 400;">의제:</span> ${post.topics}</div>
+              ${post.region && post.district ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">장소:</span> ${post.region} > ${post.district}</div>` : ''}
+            </div>
+            ${post.organization_name ? `<div><span style="font-weight: 400;">주최:</span> ${post.organization_type} | "${post.organization_name}"</div>` : ''}
+            ${post.link ? `<div style="word-break: break-all;"><span style="font-weight: 400;">참여 링크:</span> <a href="${post.link}" style="color: #797979; text-decoration: underline;">${post.link}</a></div>` : ''}
+          </div>
+        </div>
+
+        <!-- 본문 -->
+        <div style="max-width: 976px; margin: 8px auto 0; overflow: hidden; border-radius: 8px; border: 1px solid #E1E1E1; padding: 20px; font-family: Pretendard, sans-serif; line-height: 1.6; color: #2E2E2E; box-sizing: border-box;">
+          ${truncatedContent}
+        </div>
+
+        <!-- 응원봉 안내 -->
+        <div style="text-align: center; margin: 32px auto 0; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400;">
+          현재 <span style="font-weight: 700;">${post.cheer_count || 0}명</span>이 함께 응원봉을 밝히고 있어요!<br/>
+          ${userName}님의 마음도 함께 더해진다면 큰 변화가 시작될 거예요.
+        </div>
+
+        <!-- 응원봉 버튼 -->
+        <div style="text-align: center; margin: 16px auto 0;">
+          <a href="${post.link || '#'}" style="display: inline-flex; padding: 12px 24px; background: #FF7972; border-radius: 8px; align-items: center; gap: 12px; text-decoration: none;">
+            <img style="width: 48px; height: 48px;" src="${EMAIL_ASSETS['응원봉.png']}" alt="응원봉" />
+            <span style="color: #F8F8F8; font-size: 18px; font-family: Inter, sans-serif; font-weight: 600;">이 소식에 응원봉 밝히기</span>
+          </a>
+        </div>
+
+      <!-- 더 많은 연대 안내 -->
+      <div style="text-align: center; margin: 48px auto 0; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400;">
+        이 외에도 다른 연대 소식이 궁금하다면?
+      </div>
+
+      <!-- 더 많은 연대 버튼 -->
+      <div style="text-align: center; margin: 12px auto 0;">
+        <a href="#" style="display: inline-flex; padding: 16px 12px; border: 1px solid #FF7972; border-radius: 8px; align-items: center; gap: 4px; text-decoration: none;">
+          <span style="color: #FF7972; font-size: 18px; font-family: Inter, sans-serif; font-weight: 600;">더 많은 연대 살펴보기</span>
+        </a>
+      </div>
+
+      <!-- 구분선 -->
+      <div style="width: 972px; height: 1px; margin: 48px auto; background: #C3C3C3;"></div>
+
+      <!-- 하단 로고 -->
+      <div style="text-align: center; margin-top: 32px;">
+        <img style="width: 217px; height: auto;" src="${EMAIL_ASSETS['rogo_long.png']}" alt="연등 로고" />
+      </div>
+
+      <!-- 하단 문구 -->
+      <div style="text-align: center; color: #797979; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; margin-top: 16px;">
+        각자의 불빛을 모아 거대한 행동의 물결로
+      </div>
+      <div style="text-align: center; color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; margin-top: 8px;">
+        yeondeung.official@gmail.com
+      </div>
+
+      <!-- 푸터 링크 -->
+      <div style="text-align: center; margin: 16px auto 32px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">메일링 설정 변경</a>
+        <span style="color: #797979;">|</span>
+        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">수신 거부</a>
+      </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
 
 module.exports = {
   sendVerificationEmail,
   sendApprovalEmail,
   sendRejectionEmail,
+  sendInterestPostEmail,
+  sendPopularPostEmail,
   sendCustomEmail,
 };
 
@@ -260,4 +561,3 @@ module.exports = {
   sendApprovalEmail,
   sendRejectionEmail,
 };
-*/
