@@ -4,11 +4,13 @@ const jwt = require('jsonwebtoken');
  * [내부 함수] 실제 토큰 검증 로직
  */
 const validateToken = (req, res, next, customMessage, isOptional = false) => {
+    console.log(`[DEBUG] URL: ${req.url}, isOptional: ${isOptional}, AuthHeader: ${req.headers.authorization ? '있음' : '없음'}`);
     try {
         const authHeader = req.headers.authorization;
         
+        // 1. 토큰이 아예 없는 경우
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            if (isOptional) return next(); // 토큰 없어도 통과
+            if (isOptional) return next(); // 선택적이면 무조건 통과
             return res.status(401).json({ 
                 message: customMessage || '인증 토큰이 없습니다.' 
             });
@@ -20,13 +22,15 @@ const validateToken = (req, res, next, customMessage, isOptional = false) => {
         next();
 
     } catch (error) {
+        // 선택적 인증(isOptional)이라면 에러 종류와 상관없이 무조건 next()
+        if (isOptional) {
+            console.log(`[Optional Auth] 검증 실패(사유: ${error.name}), 하지만 다음으로 진행`);
+            return next();
+        }
+
+        // 필수 인증일 때만 에러 응답 전달
         if (error.name === 'TokenExpiredError') {
             return res.status(419).json({ message: '토큰이 만료되었습니다.' });
-        }
-        // 선택적 인증일 경우 토큰이 유효하지 않아도 에러 없이 통과시킴
-        if (isOptional) {
-            console.log("유효하지 않은 토큰(무시됨)");
-            return next();
         }
         return res.status(401).json({ 
             message: customMessage || '유효하지 않은 토큰입니다.' 
