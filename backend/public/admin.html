@@ -64,6 +64,23 @@
             </div>
         </div>
 
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-2xl font-semibold mb-6">📝 단체 정보 수정 요청</h2>
+            <div id="edit-table-container" class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">단체명</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">변경 내용 (소개/이메일/연락처/SNS)</th>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">승인</th>
+                        </tr>
+                    </thead>
+                    <tbody id="edit-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+                <div id="edit-empty" class="hidden text-center py-6 text-gray-500">대기 중인 수정 요청이 없습니다.</div>
+            </div>
+        </div>
+
         <div class="bg-white p-6 rounded-lg shadow-md">
             <h2 class="text-2xl font-semibold mb-6">🚨 신고 게시글 관리</h2>
             <div id="report-table-container" class="overflow-x-auto">
@@ -153,6 +170,7 @@
             const fetchAllData = () => {
                 fetchPendingOrgs();
                 fetchReports();
+                loadEditRequests();
             };
 
             document.getElementById('fetch-all-btn').addEventListener('click', fetchAllData);
@@ -229,6 +247,69 @@
                     body: JSON.stringify({ userId: id })
                 });
                 if (res.ok) { alert('승인 완료'); fetchPendingOrgs(); }
+            };
+
+            // 단체 정보 수정 요청 로드 함수
+            const loadEditRequests = async () => {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/admin/org-edit-requests`, {
+                        headers: { 'Authorization': `Bearer ${adminToken}` }
+                    });
+                    const result = await res.json();
+                    renderEditTable(result.data || []);
+                } catch (err) {
+                    console.error('수정 요청 로드 실패:', err);
+                }
+            };
+
+            // 단체 정보 수정 요청 렌더링
+            const renderEditTable = (data) => {
+                editTableBody.innerHTML = '';
+                editEmpty.classList.toggle('hidden', data.length > 0);
+                data.forEach(req => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 font-medium">${req.org_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-600">
+                            <div class="space-y-1">
+                                <p><strong>소개:</strong> ${req.new_introduction || '-'}</p>
+                                <p><strong>이메일:</strong> ${req.new_email || '-'}</p>
+                                <p><strong>연락처:</strong> ${req.new_contact_number || '-'}</p>
+                                <p><strong>SNS:</strong> ${req.new_sns_link || '-'}</p>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <button onclick="approveEdit(${req.id})" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">승인</button>
+                        </td>
+                    `;
+                    editTableBody.appendChild(tr);
+                });
+            };
+
+            // 수정 승인 실행 함수
+            window.approveEdit = async (requestId) => {
+                if (!confirm('이 변경 사항을 승인하고 실제 프로필에 반영하시겠습니까?')) return;
+                
+                try {
+                    const res = await fetch(`${API_BASE_URL}/admin/approve-org-update`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${adminToken}` 
+                        },
+                        body: JSON.stringify({ requestId })
+                    });
+                    const result = await res.json();
+                    
+                    if (res.ok) {
+                        alert('승인 및 프로필 반영이 완료되었습니다.');
+                        loadEditRequests(); // 해당 테이블만 새로고침
+                    } else {
+                        alert(result.message);
+                    }
+                } catch (err) {
+                    alert('처리 중 오류가 발생했습니다.');
+                }
             };
 
             // 모달 열기

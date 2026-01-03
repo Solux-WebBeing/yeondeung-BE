@@ -275,3 +275,139 @@ exports.rejectReport = async (req, res) => {
         if (connection) connection.release();
     }
 };
+
+/**
+ * 7. (관리자) 단체 정보 수정 요청 목록 조회
+ * - 상태가 'PENDING'인 모든 단체 정보 수정 요청 내역을 조회합니다. [cite: 83, 89]
+ */
+exports.getOrgEditRequests = async (req, res) => {
+  let connection;
+  try {
+      connection = await pool.getConnection();
+      const sql = `
+          SELECT 
+              r.id, 
+              r.user_id, 
+              op.org_name, 
+              r.new_introduction, 
+              r.new_email, 
+              r.new_sns_link, 
+              r.new_contact_number, 
+              r.created_at
+          FROM organization_edit_requests r
+          JOIN organization_profiles op ON r.user_id = op.user_id
+          WHERE r.status = 'PENDING'
+          ORDER BY r.created_at DESC
+      `;
+      const [rows] = await connection.query(sql);
+      return success(res, '단체 정보 수정 요청 목록 조회 성공', rows);
+  } catch (error) {
+      console.error('Admin Get Edit Requests Error:', error);
+      return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+      if (connection) connection.release();
+  }
+};
+
+/**
+* 8. (관리자) 단체 정보 수정 요청 승인
+* - 신청된 변경 사항을 실제 프로필에 반영하고 요청 상태를 'APPROVED'로 변경합니다. [cite: 90]
+*/
+exports.approveOrgEdit = async (req, res) => {
+  const { requestId } = req.body;
+  let connection;
+
+  if (!requestId) {
+      return fail(res, '요청 ID가 필요합니다.', 400);
+  }
+
+  try {
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+
+      // 1. 요청 데이터 존재 확인
+      const [requests] = await connection.query(
+          'SELECT * FROM organization_edit_requests WHERE id = ? AND status = "PENDING"', 
+          [requestId]
+      );
+      if (requests.length === 0) {
+          await connection.rollback();
+          return fail(res, '유효한 수정 요청을 찾을 수 없습니다.', 404);
+      }
+
+      const r = requests[0];
+
+      // 2. 실제 단체 프로필 업데이트 (변경된 항목만 업데이트하거나 전체 업데이트 수행) [cite: 90]
+      await connection.query(
+          `UPDATE organization_profiles 
+           SET introduction = ?, sns_link = ?, contact_number = ?
+           WHERE user_id = ?`,
+          [r.new_introduction, r.new_sns_link, r.new_contact_number, r.user_id]
+      );
+
+      // 3. 요청 상태 'APPROVED'로 변경 [cite: 90]
+      await connection.query(
+          'UPDATE organization_edit_requests SET status = "APPROVED" WHERE id = ?', 
+          [requestId]
+      );
+
+      // 4. (선택) 승인 안내 이메일 발송 
+      const [user] = await connection.query('SELECT email FROM users WHERE id = ?', [r.user_id]);
+      if (user.length > 0) {
+          await emailService.sendCustomEmail(
+              user[0].email, 
+              '[연등] 단체 정보가 수정되었습니다.', 
+              '요청하신 단체 정보 수정이 승인되어 서비스에 반영되었습니다.'
+          );
+      }
+
+      await connection.commit();
+      return success(res, '단체 정보 수정이 승인 및 반영되었습니다.');
+  } catch (error) {
+      if (connection) await connection.rollback();
+      console.error('Admin Approve Edit Error:', error);
+      return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+      if (connection) connection.release();
+  }
+};
+
+/**
+ * 9. (관리자) 단체 정보 수정 요청 반려 
+ */
+exports.rejectOrgEdit = async (req, res) => {
+  const { requestId, rejectReason } = req.body;
+  let connection;
+
+  if (!requestId || !rejectReason) {
+      return fail(res, '요청 ID와 반려 사유가 필요합니다.', 400);
+  }
+
+  try {
+      connection = await pool.getConnection();
+      
+      // 1. 상태를 'REJECTED'로 변경하고 사유 저장
+      const [result] = await connection.query(
+          'UPDATE organization_edit_requests SET status = "REJECTED", reject_reason = ? WHERE id = ? AND status = "PENDING"',
+          [rejectReason, requestId]
+      );
+
+      if (result.affectedRows === 0) return fail(res, '유효한 요청을 찾을 수 없습니다.', 404);
+
+      // 2. 반려 알림 메일 발송 [cite: 92]
+      const [reqData] = await connection.query('SELECT user_id FROM organization_edit_requests WHERE id = ?', [requestId]);
+      const [user] = await connection.query('SELECT email FROM users WHERE id = ?', [reqData[0].user_id]);
+      
+      await emailService.sendCustomEmail(
+          user[0].email, 
+          '[연등] 단체 정보 수정이 반려되었습니다.', 
+          `사유: ${rejectReason}`
+      );
+
+      return success(res, '수정 요청이 반려되었습니다.');
+  } catch (error) {
+      return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+      if (connection) connection.release();
+  }
+};

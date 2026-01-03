@@ -383,6 +383,177 @@ router.post('/setup/individual', verifyToken, userController.setupIndividual);
 
 /**
  * @swagger
+ * /api/users/withdraw:
+ *   post:
+ *     summary: "회원 탈퇴 (공통)"
+ *     description: "비밀번호를 입력받아 일치할 경우 계정과 모든 활동 정보를 서버에서 영구적으로 삭제합니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [password]
+ *             properties:
+ *               password:
+ *                 type: string
+ *                 description: "기존 비밀번호"
+ *     responses:
+ *       200:
+ *         description: "회원 탈퇴 완료"
+ *       400:
+ *         description: "비밀번호 불일치: '비밀번호가 일치하지 않습니다.'"
+ */
+router.post('/withdraw', verifyToken, userController.withdrawMember);
+
+/**
+ * @swagger
+ * /api/users/profile/org/edit-request:
+ *   post:
+ *     summary: "단체 정보 수정 요청 (단체)"
+ *     description: "관리자 검토 후 승인되면 정보가 반영됩니다. 검토 중에는 재요청할 수 없습니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               introduction:
+ *                 type: string
+ *                 minLength: 50
+ *                 maxLength: 200
+ *                 description: "단체 소개 (50~200자)"
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: "공식 이메일 형식"
+ *               sns_link:
+ *                 type: string
+ *                 description: "공식 SNS/웹사이트 주소 (유효한 URL)"
+ *               contact_number:
+ *                 type: string
+ *                 description: "국내 전화번호 형식"
+ *     responses:
+ *       200:
+ *         description: "수정 요청 접수: '수정 요청이 접수되었습니다. 검토 후 반영됩니다.'"
+ *       400:
+ *         description: "입력값 오류 또는 이미 검토 중인 요청 존재"
+ */
+router.post('/profile/org/edit-request', verifyToken, userController.requestOrgUpdate);
+
+/**
+ * @swagger
+ * /api/users/activities/org:
+ *   get:
+ *     summary: "등록한 연대 활동 조회 (단체)"
+ *     description: "단체가 등록한 게시글 목록을 최신순으로 조회합니다. 페이지당 4개씩 표시됩니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: "페이지 번호"
+ *     responses:
+ *       200:
+ *         description: "조회 성공"
+ *       404:
+ *         description: "게시글 없음: '아직 등록한 연대 활동이 없어요.'"
+ */
+router.get('/activities/org', verifyToken, userController.getOrgActivities);
+
+/**
+ * @swagger
+ * /api/users/profile/indiv:
+ *   patch:
+ *     summary: "개인 프로필 수정 (개인)"
+ *     description: "닉네임과 관심 분야를 수정합니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               nickname:
+ *                 type: string
+ *                 description: "수정할 닉네임"
+ *               interests:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: "선택한 관심 분야 태그 목록"
+ *     responses:
+ *       200:
+ *         description: "수정 완료: '정보가 수정되었습니다.'"
+ *       409:
+ *         description: "닉네임 중복: '이미 사용중인 닉네임입니다.'"
+ */
+router.patch('/profile/indiv', verifyToken, userController.updateIndivProfile);
+
+/**
+ * @swagger
+ * /api/users/profile/indiv/mailing:
+ *   patch:
+ *     summary: "메일링 수신 설정 수정 (개인)"
+ *     description: "메일링 수신 여부, 요일(2개), 시간 설정을 관리합니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               mailing_consent:
+ *                 type: boolean
+ *                 description: "수신 여부 토글"
+ *               mailing_days:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: "선택 요일 (2개)"
+ *               mailing_time:
+ *                 type: string
+ *                 description: "수신 시간"
+ *     responses:
+ *       200:
+ *         description: "설정 저장 완료: '메일링 설정이 저장되었습니다.'"
+ */
+router.patch('/profile/indiv/mailing', verifyToken, userController.updateMailing);
+
+/**
+ * @swagger
+ * /api/users/activities/indiv:
+ *   get:
+ *     summary: "내 활동 정보 조회 (개인)"
+ *     description: "내가 쓴 글 목록과 응원봉 참여 총 횟수를 조회합니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: "조회 성공"
+ */
+router.get('/activities/indiv', verifyToken, userController.getIndividualActivities);
+
+/**
+ * @swagger
  * /api/users/notifications:
  *   get:
  *     summary: "알림 목록 조회"
