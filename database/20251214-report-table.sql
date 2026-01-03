@@ -12,3 +12,8 @@ CREATE TABLE IF NOT EXISTS reports (
     
     UNIQUE KEY unique_report (reporter_id, board_id)
 ) COMMENT '게시글 신고 내역';
+
+-- reports 테이블에 관리자 처리 사유를 저장할 컬럼 추가
+ALTER TABLE reports 
+ADD COLUMN admin_comment TEXT NULL COMMENT '관리자 처리 사유' 
+AFTER status;

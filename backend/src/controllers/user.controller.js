@@ -715,31 +715,69 @@ exports.updateIndivProfile = async (req, res) => {
     if (!nickname) return fail(res, '닉네임을 입력해주세요.', 400);
     if (!interests || interests.length === 0) return fail(res, '관심 분야를 최소 1개 이상 선택해 주세요.', 400);
 
+    // 중복 제거 및 유효성 검사
+    const uniqueInterests = [...new Set(interests)];
+
     connection = await pool.getConnection();
     
-    // 닉네임 중복 확인
-    const [existing] = await connection.query('SELECT id FROM individual_profiles WHERE nickname = ? AND user_id != ?', [nickname, id]);
+    // id 대신 user_id를 조회하거나 존재 여부만 확인
+    const [existing] = await connection.query(
+      'SELECT user_id FROM individual_profiles WHERE nickname = ? AND user_id != ?', 
+      [nickname, id]
+    );
     if (existing.length > 0) return fail(res, '이미 사용중인 닉네임입니다.', 409);
 
     await connection.beginTransaction();
-    // 프로필 업데이트
-    await connection.query('UPDATE individual_profiles SET nickname = ? WHERE user_id = ?', [nickname, id]);
+
+    // 1. 프로필 테이블 업데이트 (닉네임 + interests JSON 컬럼 동시 업데이트)
+    const interestsJson = JSON.stringify(uniqueInterests);
+    await connection.query(
+      'UPDATE individual_profiles SET nickname = ?, interests = ? WHERE user_id = ?', 
+      [nickname, interestsJson, id]
+    );
     
-    // 관심 분야(user_interests) 갱신
+    // 2. [정규화 테이블] user_interests 매핑 갱신
     await connection.query('DELETE FROM user_interests WHERE user_id = ?', [id]);
+    
     const topicSql = 'INSERT INTO user_interests (user_id, topic_id) SELECT ?, id FROM topics WHERE name IN (?)';
-    await connection.query(topicSql, [id, interests]);
+    await connection.query(topicSql, [id, uniqueInterests]);
 
     await connection.commit();
     return success(res, '정보가 수정되었습니다.');
   } catch (error) {
     if (connection) await connection.rollback();
+    console.error('Update Profile Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
   } finally {
     if (connection) connection.release();
   }
 };
 
+/**
+ * '내 정보' - 메일링 수신 설정
+ */
+// exports.updateMailing = async (req, res) => {
+//   const { id } = req.user;
+//   const { mailing_consent, mailing_days, mailing_time } = req.body;
+
+//   try {
+//     let sql, params;
+//     if (mailing_consent) {
+//       // 수신 켜기 및 수정
+//       sql = 'UPDATE individual_profiles SET mailing_consent = true, mailing_days = ?, mailing_time = ? WHERE user_id = ?';
+//       params = [JSON.stringify(mailing_days), mailing_time, id];
+//     } else {
+//       // 수신 끄기 (초기화)
+//       sql = 'UPDATE individual_profiles SET mailing_consent = false, mailing_days = NULL, mailing_time = NULL WHERE user_id = ?';
+//       params = [id];
+//     }
+
+//     await pool.query(sql, params);
+//     return success(res, mailing_consent ? '메일링 설정이 저장되었습니다.' : '메일링 수신이 해제되었습니다.');
+//   } catch (error) {
+//     return fail(res, '서버 에러가 발생했습니다.', 500);
+//   }
+// };
 /**
  * '내 정보' - 메일링 수신 설정
  */
@@ -750,9 +788,21 @@ exports.updateMailing = async (req, res) => {
   try {
     let sql, params;
     if (mailing_consent) {
+      // 시간 형식 변환 로직 (AM/PM -> HH:mm:ss)
+      const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
+      if (!mailing_time || !timeRegex.test(mailing_time)) {
+          return fail(res, '시간 형식이 올바르지 않습니다.', 400);
+      }
+
+      const [amPm, timePart] = mailing_time.split(' ');
+      let hour = parseInt(timePart.replace('시', ''));
+      if (amPm === 'PM' && hour !== 12) hour += 12;
+      else if (amPm === 'AM' && hour === 12) hour = 0;
+      const dbTime = `${String(hour).padStart(2, '0')}:00:00`;
+
       // 수신 켜기 및 수정
       sql = 'UPDATE individual_profiles SET mailing_consent = true, mailing_days = ?, mailing_time = ? WHERE user_id = ?';
-      params = [JSON.stringify(mailing_days), mailing_time, id];
+      params = [JSON.stringify(mailing_days), dbTime, id];
     } else {
       // 수신 끄기 (초기화)
       sql = 'UPDATE individual_profiles SET mailing_consent = false, mailing_days = NULL, mailing_time = NULL WHERE user_id = ?';
@@ -762,6 +812,7 @@ exports.updateMailing = async (req, res) => {
     await pool.query(sql, params);
     return success(res, mailing_consent ? '메일링 설정이 저장되었습니다.' : '메일링 수신이 해제되었습니다.');
   } catch (error) {
+    console.error('Update Mailing Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
   }
 };

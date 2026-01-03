@@ -125,6 +125,8 @@
             const dashboardView = document.getElementById('dashboard-view');
             const orgTableBody = document.getElementById('org-table-body');
             const reportTableBody = document.getElementById('report-table-body');
+            const editTableBody = document.getElementById('edit-table-body'); // 추가됨
+            const editEmpty = document.getElementById('edit-empty');
             const messageBox = document.getElementById('message-box');
             
             // Modal Elements
@@ -134,7 +136,7 @@
             const modalDesc = document.getElementById('modal-desc');
             const modalConfirmBtn = document.getElementById('modal-confirm-btn');
 
-            let modalMode = ''; // 'ORG_REJECT' or 'REPORT_DELETE' or 'REPORT_REJECT'
+            let modalMode = ''; // 'ORG_REJECT' or 'REPORT_DELETE' or 'REPORT_REJECT' or 'EDIT_REJECT'
             let activeId = null; 
             let activeSubId = null; // boardId for reports
 
@@ -278,8 +280,9 @@
                                 <p><strong>SNS:</strong> ${req.new_sns_link || '-'}</p>
                             </div>
                         </td>
-                        <td class="px-6 py-4 text-center">
-                            <button onclick="approveEdit(${req.id})" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">승인</button>
+                        <td class="px-6 py-4 text-center whitespace-nowrap">
+                            <button onclick="approveEdit(${req.id})" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition mr-2">승인</button>
+                            <button onclick="openModal('EDIT_REJECT', ${req.id}, '${req.org_name}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">반려</button>
                         </td>
                     `;
                     editTableBody.appendChild(tr);
@@ -303,7 +306,7 @@
                     
                     if (res.ok) {
                         alert('승인 및 프로필 반영이 완료되었습니다.');
-                        loadEditRequests(); // 해당 테이블만 새로고침
+                        loadEditRequests(); 
                     } else {
                         alert(result.message);
                     }
@@ -329,6 +332,9 @@
                 } else if (mode === 'REPORT_REJECT') {
                     modalTitle.textContent = '신고 내역 기각';
                     modalDesc.textContent = `게시글 [${name}]에 대한 신고를 기각하시겠습니까?`;
+                } else if (mode === 'EDIT_REJECT') { // 추가된 케이스
+                    modalTitle.textContent = '정보 수정 요청 반려';
+                    modalDesc.textContent = `'${name}'의 수정 요청을 반려하시겠습니까? 사유를 입력하세요.`;
                 }
             };
 
@@ -351,6 +357,9 @@
                 } else if (modalMode === 'REPORT_REJECT') {
                     endpoint = '/admin/reports/reject';
                     payload = { reportId: activeId, adminReason: reason };
+                } else if (modalMode === 'EDIT_REJECT') {
+                    endpoint = '/admin/reject-org-update';
+                    payload = { requestId: activeId, rejectReason: reason };
                 }
 
                 const res = await fetch(`${API_BASE_URL}${endpoint}`, {
