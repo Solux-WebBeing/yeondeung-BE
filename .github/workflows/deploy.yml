@@ -7,8 +7,19 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      es_changed: ${{ steps.filter.outputs.elasticsearch }}
     steps:
       - uses: actions/checkout@v3
+
+      # 1. 특정 폴더 변경 감지 (Elasticsearch 관련 파일만 체크)
+      - name: Check for changes in elasticsearch
+        id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            elasticsearch:
+              - 'elasticsearch/**'
 
       - name: Docker Hub Login
         uses: docker/login-action@v2
@@ -16,16 +27,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 1. Backend 이미지 빌드 및 푸시
+      # 2. Backend 이미지 빌드 및 푸시 (커밋 해시 태그 사용)
       - name: Build and Push Backend
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:latest ./backend
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:${{ github.sha }} ./backend
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:${{ github.sha }}
+          # 롤백 및 편의를 위해 latest 태그도 함께 업데이트
+          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:${{ github.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:latest
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-be:latest
 
-      # 2. Elasticsearch(Nori) 이미지 빌드 및 푸시
+      # 3. Elasticsearch 이미지 빌드 (폴더 내 변경 사항이 있을 때만 실행)
       - name: Build and Push Elasticsearch
+        if: steps.filter.outputs.elasticsearch == 'true'
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:latest ./elasticsearch
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:${{ github.sha }} ./elasticsearch
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:${{ github.sha }}
+          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:${{ github.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:latest
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/yeondeung-es:latest
 
   deploy:
@@ -40,8 +57,25 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd /home/ubuntu/yeondeung-be
-            sudo docker-compose pull app elasticsearch
             
+            # 1. .env 파일 관리 (기존 DB 설정 등 보존하면서 태그만 교체)
+            touch .env
+            
+            # 기존 BE_TAG/ES_TAG 라인 삭제 후 현재 커밋 해시 주입
+            sed -i '/^BE_TAG=/d' .env
+            echo "BE_TAG=${{ github.sha }}" >> .env
+            
+            sed -i '/^ES_TAG=/d' .env
+            if [ "${{ needs.build-and-push.outputs.es_changed }}" == "true" ]; then
+              echo "ES_TAG=${{ github.sha }}" >> .env
+            else
+              # 이번에 ES 빌드가 없었다면 latest를 기본으로 사용하도록 설정
+              if ! grep -q "ES_TAG=" .env; then echo "ES_TAG=latest" >> .env; fi
+            fi
+            
+            # 2. 배포 실행
+            sudo docker-compose pull app elasticsearch
             sudo docker-compose up -d --force-recreate --remove-orphans
             
+            # 3. 미사용 오래된 이미지 정리
             sudo docker image prune -f
