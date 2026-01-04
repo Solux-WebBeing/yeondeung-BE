@@ -584,15 +584,13 @@ router.get('/activities/indiv', verifyToken, userController.getIndividualActivit
  *       - in: query
  *         name: year
  *         required: true
- *         schema: 
+ *         schema:
  *           type: integer
- *         description: "조회할 년도 (예: 2026)"
  *       - in: query
  *         name: month
  *         required: true
- *         schema: 
+ *         schema:
  *           type: integer
- *         description: "조회할 월 (1~12)"
  *     responses:
  *       200:
  *         description: "조회 성공"

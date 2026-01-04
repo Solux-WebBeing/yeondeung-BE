@@ -840,16 +840,13 @@ exports.getCheeredActivitiesForCalendar = async (req, res) => {
   try {
     connection = await pool.getConnection();
 
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`;
-    const endDate = `${year}-${String(month).padStart(2, '0')}-31 23:59:59`;
+    // 1. 조회할 달의 시작일 설정 (YYYY-MM-01)
+    const targetMonth = `${year}-${String(month).padStart(2, '0')}-01`;
 
     /**
-     * 조회 조건:
-     * 1. 사용자가 응원(cheers)한 게시글일 것
-     * 2. 활동 기간이 해당 월과 겹칠 것
-     * - 시작일이 해당 월 내에 있거나
-     * - 종료일이 해당 월 내에 있거나
-     * - 활동 기간 사이에 해당 월이 포함되거나
+     * 2. SQL 쿼리 실행
+     * - LAST_DAY(?): 입력된 날짜가 속한 달의 마지막 날을 자동으로 계산
+     * - CASE 문: '서명·청원·탄원' 유형인 경우에만 디데이를 계산하고 나머지는 NULL 반환
      */
     const sql = `
       SELECT 
@@ -864,20 +861,22 @@ exports.getCheeredActivitiesForCalendar = async (req, res) => {
         b.region, 
         b.district, 
         b.link,
-        DATEDIFF(b.end_date, CURDATE()) as d_day
+        CASE 
+          WHEN b.participation_type IN ('서명', '청원', '탄원') THEN DATEDIFF(b.end_date, CURDATE())
+          ELSE NULL 
+        END as d_day
       FROM cheers c
       JOIN boards b ON c.board_id = b.id
       WHERE c.user_id = ? 
-        AND (
-          (b.start_date <= ? AND b.end_date >= ?)
-        )
+        AND b.start_date <= LAST_DAY(?)
+        AND b.end_date >= ?
       ORDER BY b.start_date ASC
     `;
 
-    const [activities] = await connection.query(sql, [id, endDate, startDate]);
+    const [activities] = await connection.query(sql, [id, targetMonth, targetMonth]);
 
     if (activities.length === 0) {
-      return success(res, { activities: [] }, '이 달에는 응원한 활동이 없습니다.');
+      return success(res, { activities: [] }, '이 날짜에는 응원한 활동이 없습니다.');
     }
 
     return success(res, { activities }, '응원 활동 달력 조회 성공');
