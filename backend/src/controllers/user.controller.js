@@ -825,6 +825,71 @@ exports.getIndividualActivities = async (req, res) => {
 };
 
 /**
+ * '내 정보' - 응원한 활동 달력 데이터 조회
+ * Query Params: year, month
+ */
+exports.getCheeredActivitiesForCalendar = async (req, res) => {
+  const { id } = req.user;
+  const { year, month } = req.query;
+
+  if (!year || !month) {
+    return fail(res, '년도(year)와 월(month) 정보를 입력해주세요.', 400);
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`;
+    const endDate = `${year}-${String(month).padStart(2, '0')}-31 23:59:59`;
+
+    /**
+     * 조회 조건:
+     * 1. 사용자가 응원(cheers)한 게시글일 것
+     * 2. 활동 기간이 해당 월과 겹칠 것
+     * - 시작일이 해당 월 내에 있거나
+     * - 종료일이 해당 월 내에 있거나
+     * - 활동 기간 사이에 해당 월이 포함되거나
+     */
+    const sql = `
+      SELECT 
+        b.id, 
+        b.participation_type, 
+        b.title, 
+        b.topics, 
+        b.start_date, 
+        b.end_date, 
+        b.is_start_time_set, 
+        b.is_end_time_set,
+        b.region, 
+        b.district, 
+        b.link,
+        DATEDIFF(b.end_date, CURDATE()) as d_day
+      FROM cheers c
+      JOIN boards b ON c.board_id = b.id
+      WHERE c.user_id = ? 
+        AND (
+          (b.start_date <= ? AND b.end_date >= ?)
+        )
+      ORDER BY b.start_date ASC
+    `;
+
+    const [activities] = await connection.query(sql, [id, endDate, startDate]);
+
+    if (activities.length === 0) {
+      return success(res, { activities: [] }, '이 달에는 응원한 활동이 없습니다.');
+    }
+
+    return success(res, { activities }, '응원 활동 달력 조회 성공');
+  } catch (error) {
+    console.error('Calendar Fetch Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
  * 11. 로그아웃
  * JWT 특성상 서버에서 토큰을 삭제할 수는 없습니다.
  * 클라이언트에게 "로그아웃 처리됨" 응답을 보내면, 

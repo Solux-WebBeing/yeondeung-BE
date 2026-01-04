@@ -573,6 +573,34 @@ router.get('/activities/indiv', verifyToken, userController.getIndividualActivit
 
 /**
  * @swagger
+ * /api/users/activities/cheered-calendar:
+ *   get:
+ *     summary: "응원한 활동 달력 조회 (개인)"
+ *     description: "특정 년/월에 해당하는 사용자의 응원 활동 목록을 조회합니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         required: true
+ *         schema: 
+ *           type: integer
+ *         description: "조회할 년도 (예: 2026)"
+ *       - in: query
+ *         name: month
+ *         required: true
+ *         schema: 
+ *           type: integer
+ *         description: "조회할 월 (1~12)"
+ *     responses:
+ *       200:
+ *         description: "조회 성공"
+ */
+router.get('/activities/cheered-calendar', verifyToken, userController.getCheeredActivitiesForCalendar);
+
+/**
+ * @swagger
  * /api/users/notifications:
  *   get:
  *     summary: "알림 목록 조회"
