@@ -1,6 +1,7 @@
 const pool = require('../../db');
 const { success, fail } = require('../util/response.util.js');
 const emailService = require('../util/email.service.js');
+const notificationUtil = require('../util/notification.util');
 const { Client } = require('@elastic/elasticsearch');
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 
@@ -351,14 +352,21 @@ exports.approveOrgEdit = async (req, res) => {
           [requestId]
       );
 
-      // 4. (선택) 승인 안내 이메일 발송 
+      // 4. 실시간 인앱 알림 생성
+      await notificationUtil.sendSystemNotification(
+        connection, 
+        r.user_id, 
+        '요청하신 단체 정보 수정이 성공적으로 반영되었습니다.'
+      );
+
+      // 5. 보조 이메일 발송 (공통 문구 적용)
       const [user] = await connection.query('SELECT email FROM users WHERE id = ?', [r.user_id]);
       if (user.length > 0) {
-          await emailService.sendCustomEmail(
-              user[0].email, 
-              '[연등] 단체 정보가 수정되었습니다.', 
-              '요청하신 단체 정보 수정이 승인되어 서비스에 반영되었습니다.'
-          );
+        await emailService.sendCustomEmail(
+            user[0].email, 
+            '[연등] 단체 정보 수정 요청에 대한 검토 결과가 안내되었습니다.', 
+            '자세한 내용은 연등 서비스 내 알림을 확인해 주세요.'
+        );
       }
 
       await connection.commit();
@@ -394,16 +402,23 @@ exports.rejectOrgEdit = async (req, res) => {
 
       if (result.affectedRows === 0) return fail(res, '유효한 요청을 찾을 수 없습니다.', 404);
 
-      // 2. 반려 알림 메일 발송 [cite: 92]
+      // 2. 실시간 인앱 알림 생성 (반려 사유 포함)
       const [reqData] = await connection.query('SELECT user_id FROM organization_edit_requests WHERE id = ?', [requestId]);
-      const [user] = await connection.query('SELECT email FROM users WHERE id = ?', [reqData[0].user_id]);
-      
-      await emailService.sendCustomEmail(
-          user[0].email, 
-          '[연등] 단체 정보 수정이 반려되었습니다.', 
-          `사유: ${rejectReason}`
+      await notificationUtil.sendSystemNotification(
+          connection, 
+          reqData[0].user_id, 
+          `요청하신 단체 정보 수정이 반려되었습니다. 반려 사유: ${rejectReason}`
       );
 
+      // 3. 보조 이메일 발송 (공통 문구 적용)
+      const [user] = await connection.query('SELECT email FROM users WHERE id = ?', [reqData[0].user_id]);
+      await emailService.sendCustomEmail(
+          user[0].email, 
+          '[연등] 단체 정보 수정 요청에 대한 검토 결과가 안내되었습니다.', 
+          '자세한 내용은 연등 서비스 내 알림을 확인해 주세요.'
+      );
+
+      await connection.commit();
       return success(res, '수정 요청이 반려되었습니다.');
   } catch (error) {
       return fail(res, '서버 에러가 발생했습니다.', 500);

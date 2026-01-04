@@ -71,3 +71,14 @@ exports.sendActivityNotifications = async (connection, boardData) => {
         );
     }
 };
+
+/**
+ * 시스템 알림 생성 (게시글과 무관한 일반 알림)
+ */
+exports.sendSystemNotification = async (connection, userId, message) => {
+    await connection.query(
+        `INSERT INTO notifications (user_id, message) 
+         VALUES (?, ?)`,
+        [userId, message]
+    );
+};

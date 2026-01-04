@@ -30,5 +30,11 @@ CREATE TABLE notifications (
 -- 사용자별 최신 10개 조회를 위한 인덱스 추가
 CREATE INDEX idx_user_notifications ON notifications (user_id, created_at DESC);
 
+-- 알림 테이블 제약 조건 완화 (게시글 외 알림 지원)
+ALTER TABLE notifications 
+MODIFY COLUMN board_id BIGINT NULL COMMENT '연결된 게시글 ID (시스템 알림의 경우 NULL)',
+MODIFY COLUMN participation_type VARCHAR(50) NULL COMMENT '활동 유형',
+MODIFY COLUMN title VARCHAR(255) NULL COMMENT '게시글 제목';
+
 -- 외래 키 검사 재활성화
 SET FOREIGN_KEY_CHECKS = 1;
