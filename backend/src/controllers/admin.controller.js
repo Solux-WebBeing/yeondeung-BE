@@ -393,24 +393,28 @@ exports.rejectOrgEdit = async (req, res) => {
 
   try {
       connection = await pool.getConnection();
-      
-      // 1. 상태를 'REJECTED'로 변경하고 사유 저장
+      await connection.beginTransaction();
+
+      // 1. 요청 내역 업데이트
       const [result] = await connection.query(
           'UPDATE organization_edit_requests SET status = "REJECTED", reject_reason = ? WHERE id = ? AND status = "PENDING"',
           [rejectReason, requestId]
       );
+      if (result.affectedRows === 0) {
+          await connection.rollback();
+          return fail(res, '유효한 요청을 찾을 수 없습니다.', 404);
+      }
 
-      if (result.affectedRows === 0) return fail(res, '유효한 요청을 찾을 수 없습니다.', 404);
-
-      // 2. 실시간 인앱 알림 생성 (반려 사유 포함)
+      // 2. 알림 생성 (메시지와 사유를 분리하여 전달)
       const [reqData] = await connection.query('SELECT user_id FROM organization_edit_requests WHERE id = ?', [requestId]);
       await notificationUtil.sendSystemNotification(
           connection, 
           reqData[0].user_id, 
-          `요청하신 단체 정보 수정이 반려되었습니다. 반려 사유: ${rejectReason}`
+          '요청하신 단체 정보 수정이 반려되었습니다.', // 메인 메시지
+          rejectReason                             // 별도 사유 필드
       );
 
-      // 3. 보조 이메일 발송 (공통 문구 적용)
+      // 3. 이메일 발송
       const [user] = await connection.query('SELECT email FROM users WHERE id = ?', [reqData[0].user_id]);
       await emailService.sendCustomEmail(
           user[0].email, 
@@ -421,6 +425,7 @@ exports.rejectOrgEdit = async (req, res) => {
       await connection.commit();
       return success(res, '수정 요청이 반려되었습니다.');
   } catch (error) {
+      if (connection) await connection.rollback();
       return fail(res, '서버 에러가 발생했습니다.', 500);
   } finally {
       if (connection) connection.release();

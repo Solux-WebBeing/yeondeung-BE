@@ -36,5 +36,9 @@ MODIFY COLUMN board_id BIGINT NULL COMMENT '연결된 게시글 ID (시스템 �
 MODIFY COLUMN participation_type VARCHAR(50) NULL COMMENT '활동 유형',
 MODIFY COLUMN title VARCHAR(255) NULL COMMENT '게시글 제목';
 
+-- 알림 테이블에 반려 사유 컬럼 추가
+ALTER TABLE notifications 
+ADD COLUMN reject_reason TEXT NULL COMMENT '반려 사유 (시스템 알림용)';
+
 -- 외래 키 검사 재활성화
 SET FOREIGN_KEY_CHECKS = 1;
