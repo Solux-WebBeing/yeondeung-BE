@@ -825,6 +825,70 @@ exports.getIndividualActivities = async (req, res) => {
 };
 
 /**
+ * '내 정보' - 응원한 활동 달력 데이터 조회
+ * Query Params: year, month
+ */
+exports.getCheeredActivitiesForCalendar = async (req, res) => {
+  const { id } = req.user;
+  const { year, month } = req.query;
+
+  if (!year || !month) {
+    return fail(res, '년도(year)와 월(month) 정보를 입력해주세요.', 400);
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    // 1. 조회할 달의 시작일 설정 (YYYY-MM-01)
+    const targetMonth = `${year}-${String(month).padStart(2, '0')}-01`;
+
+    /**
+     * 2. SQL 쿼리 실행
+     * - LAST_DAY(?): 입력된 날짜가 속한 달의 마지막 날을 자동으로 계산
+     * - CASE 문: '서명·청원·탄원' 유형인 경우에만 디데이를 계산하고 나머지는 NULL 반환
+     */
+    const sql = `
+      SELECT 
+        b.id, 
+        b.participation_type, 
+        b.title, 
+        b.topics, 
+        b.start_date, 
+        b.end_date, 
+        b.is_start_time_set, 
+        b.is_end_time_set,
+        b.region, 
+        b.district, 
+        b.link,
+        CASE 
+          WHEN b.participation_type IN ('서명', '청원', '탄원') THEN DATEDIFF(b.end_date, CURDATE())
+          ELSE NULL 
+        END as d_day
+      FROM cheers c
+      JOIN boards b ON c.board_id = b.id
+      WHERE c.user_id = ? 
+        AND b.start_date <= LAST_DAY(?)
+        AND b.end_date >= ?
+      ORDER BY b.start_date ASC
+    `;
+
+    const [activities] = await connection.query(sql, [id, targetMonth, targetMonth]);
+
+    if (activities.length === 0) {
+      return success(res, { activities: [] }, '이 날짜에는 응원한 활동이 없습니다.');
+    }
+
+    return success(res, { activities }, '응원 활동 달력 조회 성공');
+  } catch (error) {
+    console.error('Calendar Fetch Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
  * 11. 로그아웃
  * JWT 특성상 서버에서 토큰을 삭제할 수는 없습니다.
  * 클라이언트에게 "로그아웃 처리됨" 응답을 보내면, 
