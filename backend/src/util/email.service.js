@@ -196,16 +196,6 @@ const sendCustomEmail = async (toEmail, subject, textContent) => {
       </div>
     `,
   };
-  
-/**
- * 5. 주기적 메일 발송 - 관심 분야 미응원 게시글
- */
-const sendInterestPostEmail = async (toEmail, userName, posts) => {
-  const mailOptions = {
-    from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
-    to: toEmail,
-    subject: '[연등] 나의 관심 분야의 새로운 게시글',
-    html: getInterestPostTemplate(userName, posts),
 
   try {
     await transporter.sendMail(mailOptions);
@@ -215,6 +205,19 @@ const sendInterestPostEmail = async (toEmail, userName, posts) => {
     throw new Error('안내 이메일 발송에 실패했습니다.');
   }
 };
+
+/**
+ * 5. 주기적 메일 발송 - 관심 분야 미응원 게시글
+ */
+const sendInterestPostEmail = async (toEmail, userName, posts) => {
+  const mailOptions = {
+    from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
+    to: toEmail,
+    subject: '[연등] 나의 관심 분야의 새로운 게시글',
+    html: getInterestPostTemplate(userName, posts),
+  };
+  try {
+    await transporter.sendMail(mailOptions);
     console.log(`[Email Service] Interest posts email sent to: ${toEmail}`);
   } catch (error) {
     console.error(`[Email Service] Error sending interest posts email: ${toEmail}`, error);
@@ -508,56 +511,4 @@ module.exports = {
   sendInterestPostEmail,
   sendPopularPostEmail,
   sendCustomEmail,
-};
-
-// 이메일 간편 테스트 용
-/*
-const BRAND_COLOR = '#FF7972';
-const TEXT_COLOR = '#333333';
-const CONTAINER_STYLE = `
-  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', Arial, sans-serif; 
-  max-width: 600px; 
-  margin: 20px auto; 
-  padding: 30px; 
-  border: 1px solid #e0e0e0; 
-  border-radius: 12px; 
-  background-color: #ffffff;
-`;
-
-const sendVerificationEmail = async (toEmail, code) => {
-  console.log('\n==================================================');
-  console.log('📬 [TEST MODE] 이메일 발송 시뮬레이션 (인증번호)');
-  console.log(`➡ 받는 사람: ${toEmail}`);
-  console.log(`➡ 인증 번호: ${code}`);
-  console.log('==================================================\n');
-
-  return true;
-};
-
-
-const sendApprovalEmail = async (toEmail, orgName) => {
-  console.log('\n==================================================');
-  console.log('📬 [TEST MODE] 이메일 발송 시뮬레이션 (가입 승인)');
-  console.log(`➡ 받는 사람: ${toEmail}`);
-  console.log(`➡ 내용: '${orgName}' 님의 단체 가입이 승인되었습니다.`);
-  console.log('==================================================\n');
-
-  return true;
-};
-
-const sendRejectionEmail = async (toEmail, orgName, rejectionReason) => {
-  console.log('\n==================================================');
-  console.log('📬 [TEST MODE] 이메일 발송 시뮬레이션 (가입 반려)');
-  console.log(`➡ 받는 사람: ${toEmail}`);
-  console.log(`➡ 대상 단체: ${orgName}`);
-  console.log(`➡ 반려 사유: ${rejectionReason}`);
-  console.log('==================================================\n');
-
-  return true;
-};
-
-module.exports = {
-  sendVerificationEmail,
-  sendApprovalEmail,
-  sendRejectionEmail,
 };
