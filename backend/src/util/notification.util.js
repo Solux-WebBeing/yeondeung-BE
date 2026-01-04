@@ -71,3 +71,14 @@ exports.sendActivityNotifications = async (connection, boardData) => {
         );
     }
 };
+
+/**
+ * 시스템 알림 생성 (반려 사유 필드 추가)
+ */
+exports.sendSystemNotification = async (connection, userId, message, rejectReason = null) => {
+    await connection.query(
+        `INSERT INTO notifications (user_id, message, reject_reason) 
+         VALUES (?, ?, ?)`,
+        [userId, message, rejectReason]
+    );
+};

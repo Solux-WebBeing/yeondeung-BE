@@ -12,7 +12,7 @@ exports.getMyNotifications = async (req, res) => {
                 id, board_id, participation_type, title, thumbnail_url,
                 DATE_FORMAT(start_date, '%Y.%m.%d') as start_date,
                 DATE_FORMAT(end_date, '%Y.%m.%d') as end_date,
-                region, district, message, created_at
+                region, district, message, reject_reason, created_at, is_read
             FROM notifications 
             WHERE user_id = ? 
             ORDER BY created_at DESC
