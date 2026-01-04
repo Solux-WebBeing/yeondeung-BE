@@ -517,7 +517,7 @@ exports.setupOrganization = async (req, res) => {
 };
 
 /**
- * 단체 정보 수정 요청 (명세서의 변경 사항 없음 체크 포함)
+ * 단체 정보 수정 요청
  */
 exports.requestOrgUpdate = async (req, res) => {
   const { id } = req.user;
@@ -542,9 +542,7 @@ exports.requestOrgUpdate = async (req, res) => {
     const current = currentRows[0];
 
     // 2. 변경 사항 없음 체크 로직
-    // 입력된 값이 기존 값과 하나라도 다르면 true를 반환하는 함수
     const isChanged = (newVal, oldVal) => {
-      // 값이 undefined이거나 null인 경우를 고려하여 문자열로 변환 후 비교
       const normalizedNew = newVal ? String(newVal).trim() : "";
       const normalizedOld = oldVal ? String(oldVal).trim() : "";
       return normalizedNew !== normalizedOld;
@@ -556,16 +554,34 @@ exports.requestOrgUpdate = async (req, res) => {
       isChanged(sns_link, current.sns_link) ||
       isChanged(contact_number, current.contact_number);
 
-    // 변경 사항이 전혀 없는 경우 예외 처리
     if (!hasChanges) {
-      return fail(res, '변경된 내용이 없습니다.', 400); // 명세서 요구 토스트 문구
+      return fail(res, '변경된 내용이 없습니다.', 400);
     }
 
-    // 3. 글자 수 검증 (소개: 50자~200자)
-    if (introduction) {
-      if (introduction.length < 50 || introduction.length > 200) {
-        return fail(res, '최소 50자 이상, 최대 200자 이하로 입력해주세요', 400);
-      }
+    // 3. 데이터 유효성 검증
+
+    // [단체 소개] 50자 이상 200자 이하
+    const introLen = introduction ? introduction.trim().length : 0;
+    if (introLen < 50 || introLen > 200) {
+      return fail(res, '최소 50자 이상, 최대 200자 이하로 입력해주세요', 400);
+    }
+
+    // [공식 이메일] 형식 검증
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (email && !emailRegex.test(email)) {
+      return fail(res, '유효한 이메일 형식이 아닙니다.', 400);
+    }
+
+    // [SNS/웹사이트] https:// 시작 및 URL 형식 (1개만 허용은 문자열 입력으로 처리)
+    const urlRegex = /^https:\/\/[^\s/$.?#].[^\s]*$/;
+    if (sns_link && !urlRegex.test(sns_link)) {
+      return fail(res, '유효한 URL 형식이 아닙니다. (https://... 시작)', 400);
+    }
+
+    // [연락처] 국내 전화번호 형식 (010-1234-5678 또는 02-123-4567 등)
+    const phoneRegex = /^(01[016789]{1}|02|0[3-9]{1}[0-9]{1})-?[0-9]{3,4}-?[0-9]{4}$/;
+    if (contact_number && !phoneRegex.test(contact_number)) {
+      return fail(res, '유효한 국내 전화번호 형식이 아닙니다.', 400);
     }
 
     // 4. 검토 중 상태 확인 (중복 요청 방지)
@@ -582,7 +598,7 @@ exports.requestOrgUpdate = async (req, res) => {
        VALUES (?, ?, ?, ?, ?)`, [id, introduction, email, sns_link, contact_number]
     );
 
-    return success(res, '수정 요청이 접수되었습니다. 검토 후 반영됩니다.'); // 명세서 요구 문구
+    return success(res, '수정 요청이 접수되었습니다. 검토 후 반영됩니다.');
   } catch (error) {
     console.error('Request Org Update Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
@@ -753,31 +769,6 @@ exports.updateIndivProfile = async (req, res) => {
   }
 };
 
-/**
- * '내 정보' - 메일링 수신 설정
- */
-// exports.updateMailing = async (req, res) => {
-//   const { id } = req.user;
-//   const { mailing_consent, mailing_days, mailing_time } = req.body;
-
-//   try {
-//     let sql, params;
-//     if (mailing_consent) {
-//       // 수신 켜기 및 수정
-//       sql = 'UPDATE individual_profiles SET mailing_consent = true, mailing_days = ?, mailing_time = ? WHERE user_id = ?';
-//       params = [JSON.stringify(mailing_days), mailing_time, id];
-//     } else {
-//       // 수신 끄기 (초기화)
-//       sql = 'UPDATE individual_profiles SET mailing_consent = false, mailing_days = NULL, mailing_time = NULL WHERE user_id = ?';
-//       params = [id];
-//     }
-
-//     await pool.query(sql, params);
-//     return success(res, mailing_consent ? '메일링 설정이 저장되었습니다.' : '메일링 수신이 해제되었습니다.');
-//   } catch (error) {
-//     return fail(res, '서버 에러가 발생했습니다.', 500);
-//   }
-// };
 /**
  * '내 정보' - 메일링 수신 설정
  */
