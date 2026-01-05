@@ -25,19 +25,25 @@ const getRandomMessage = (topicName) => {
  * 게시글 등록 시 관련 유저들에게 알림 생성
  */
 exports.sendActivityNotifications = async (connection, boardData) => {
-    // boardData에서 작성자 ID(author_id)를 추가로 받습니다.
     const { id, author_id, participation_type, title, topics, start_date, end_date, region, district, images } = boardData;
     
     // 1. 해당 게시글의 의제 ID 목록 가져오기
     const topicNames = topics.split(',').map(t => t.trim());
     const [topicRows] = await connection.query('SELECT id, name FROM topics WHERE name IN (?)', [topicNames]);
     const topicIds = topicRows.map(r => r.id);
+
+    // 유효한 의제가 하나도 없다면 알림을 보낼 대상이 없으므로 종료
+    if (topicIds.length === 0) {
+        console.log('알림 전송 중단: 유효한 의제가 없습니다.');
+        return;
+    }
+
     const firstTopicName = topicRows[0]?.name || '';
 
-    // 2. 관심 분야가 일치하는 사용자 조회 (작성자 본인 제외 추가)
+    // 2. 관심 분야가 일치하는 사용자 조회
     const [targetUsers] = await connection.query(
         `SELECT DISTINCT user_id FROM user_interests 
-         WHERE topic_id IN (?) AND user_id != ?`, // 작성자 제외 조건 추가
+         WHERE topic_id IN (?) AND user_id != ?`, 
         [topicIds, author_id]
     );
 
