@@ -38,21 +38,25 @@ exports.sendActivityNotifications = async (connection, boardData) => {
         return;
     }
 
-    const firstTopicName = topicRows[0]?.name || '';
-
-    // 2. 관심 분야가 일치하는 사용자 조회
+    // 2. 관심 분야가 일치하는 사용자 조회 (매칭된 의제명을 함께 가져옴)
+    // GROUP BY를 사용하여 한 사용자에게 여러 의제가 매칭되더라도 알림은 하나만 가도록 함
     const [targetUsers] = await connection.query(
-        `SELECT DISTINCT user_id FROM user_interests 
-         WHERE topic_id IN (?) AND user_id != ?`, 
+        `SELECT ui.user_id, MAX(t.name) as matched_topic_name 
+         FROM user_interests ui
+         JOIN topics t ON ui.topic_id = t.id
+         WHERE ui.topic_id IN (?) AND ui.user_id != ?
+         GROUP BY ui.user_id`, 
         [topicIds, author_id]
     );
 
     if (targetUsers.length === 0) return;
 
     const thumbnailUrl = images && images.length > 0 ? images[0] : null;
-    const message = getRandomMessage(firstTopicName);
 
     for (const user of targetUsers) {
+        // 루프 내부에서 해당 사용자의 관심 의제명으로 메시지 생성
+        const message = getRandomMessage(user.matched_topic_name);
+
         // 3. 알림 삽입
         await connection.query(
             `INSERT INTO notifications 
