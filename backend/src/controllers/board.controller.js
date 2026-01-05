@@ -142,6 +142,16 @@ exports.createPost = async (req, res) => {
         const topicMap = {};
         topicRows.forEach(row => topicMap[row.name] = row.id);
 
+        // 입력된 의제 중 실제 DB에 존재하는 것들만 필터링
+        const validTopicValues = topicList
+        .map(name => topicMap[name])
+        .filter(tid => tid);
+
+        // 만약 입력된 의제 중 DB에 등록된 것이 하나도 없다면 에러 반환
+        if (validTopicValues.length === 0) {
+            throw new Error("유효하지 않은 의제입니다. 등록된 의제 중에서 선택해주세요.");
+        }
+
         const topicValues = topicList
             .map(name => topicMap[name])
             .filter(tid => tid)
