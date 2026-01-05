@@ -65,16 +65,6 @@ services:
     networks:
       - elk-net
 
-  # 5. Kibana
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.10.2
-    container_name: kibana
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    depends_on:
-      - elasticsearch
-    networks:
-      - elk-net
 
 volumes:
   mysql-data:
