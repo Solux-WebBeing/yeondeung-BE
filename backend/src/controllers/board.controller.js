@@ -80,8 +80,17 @@ exports.createPost = async (req, res) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-
         const user_id = req.user.id;
+
+        // 하루 게시글 2개 초과 검사
+        const [countRows] = await connection.query(
+            'SELECT COUNT(*) as count FROM boards WHERE user_id = ? AND DATE(created_at) = CURDATE()',
+            [user_id]
+        );
+        if (countRows[0].count >= 2) {
+            throw new Error("하루 게시글 등록 가능 개수를 초과했습니다."); //
+        }
+
         const { 
             participation_type, title, topics, content, 
             start_date, start_time, end_date, end_time, 
@@ -220,7 +229,17 @@ exports.createPost = async (req, res) => {
         return success(res, { postId: newBoardId }, '등록되었습니다.');
     } catch (error) {
         if (connection) await connection.rollback();
-        return fail(res, error.message, 400);
+        // 예외 문구 처리
+        const userMessages = [
+            "하루 게시글 등록 가능 개수를 초과했습니다.",
+            "유효하지 않은 의제입니다. 등록된 의제 중에서 선택해주세요."
+        ];
+
+        // 직접 정의한 에러 메시지가 아니면 서버 오류 메시지로 대체
+        const finalMessage = userMessages.includes(error.message) 
+            ? error.message 
+            : "일시적인 오류로 게시글을 등록하지 못했습니다. 잠시 후 다시 시도해주세요.";
+        return fail(res, finalMessage, 400);
     } finally {
         connection.release();
     }
