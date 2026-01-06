@@ -42,6 +42,16 @@ const enrichData = async (items, currentUserId = null) => {
     return items.map(item => {
         const count = cheerMap[item.id] || 0;
 
+        const topicArray = item.topics 
+            ? (Array.isArray(item.topics) ? item.topics : item.topics.split(',').map(t => t.trim())) 
+            : [];
+
+        let displayTopic = "사회";
+        if (topicArray.length > 0) {
+            const randomIndex = Math.floor(Math.random() * topicArray.length);
+            displayTopic = topicArray[randomIndex];
+        }
+
         let dDay = "상시";
         let isTodayEnd = false;
         if (item.end_date) {
@@ -58,22 +68,22 @@ const enrichData = async (items, currentUserId = null) => {
             return isNaN(d.getTime()) ? "" : `${d.getFullYear()}. ${String(d.getMonth() + 1).padStart(2, '0')}. ${String(d.getDate()).padStart(2, '0')}`;
         };
 
-        const displayTopic = (Array.isArray(item.topics) ? item.topics[0] : (item.topics ? item.topics.split(',')[0] : '사회'));
 
         return {
             id: item.id,
             title: item.title,
             thumbnail: imageMap[item.id] || DEFAULT_THUMBNAIL,
-            topics: item.topics ? (Array.isArray(item.topics) ? item.topics : item.topics.split(',')) : [],
+            topics: topicArray, // 가공된 배열 사용
             location: item.region ? `${item.region}${item.district ? ` > ${item.district}` : ""}` : "온라인/전국",
             dateDisplay: (item.start_date && item.end_date) 
                 ? `${formatDate(item.start_date)} ~ ${formatDate(item.end_date)}`
                 : (item.start_date ? formatDate(item.start_date) : "상시 진행"),
             cheerCount: count,
-            isCheered: myCheerSet.has(item.id), // 로그인 유저 전용 필드
-            isAuthor: currentUserId === item.user_id, // 본인 글 여부
+            isCheered: myCheerSet.has(item.id),
+            isAuthor: currentUserId === item.user_id,
             dDay,
             isTodayEnd,
+            // 수정된 랜덤 토픽 적용
             interestMessage: `${displayTopic} 의제에 관심이 있는 ${count}명이 연대합니다!`
         };
     });
@@ -81,26 +91,28 @@ const enrichData = async (items, currentUserId = null) => {
 
 /**
  * 1. 우리들의 연대 (userId 파라미터 추가)
- * 주제(topicName)들 중 하나라도 포함된 게시글을 가져옵니다. (OR 연산)
+ * 주제(topicName)들 중 하나라도 포함된 게시글을 최신순으로 가져옵니다. (OR 연산)
  */
 exports.getOursByTopic = async (topicName, userId = null) => {
     if (!topicName) return [];
     try {
-        const topicList = topicName.split(',').map(t => t.trim());
+        // 쉼표로 구분된 토픽들을 배열로 변환
+        const topicList = topicName.split(',').map(t => t.trim()).filter(Boolean);
         
         const response = await esClient.search({
             index: 'boards',
             size: 4,
             query: {
                 bool: {
-                    // 1. 반드시 만족해야 하는 필터 (날짜)
+                    // 1. 기간 필터 (최근 30일 이내 마감된 것부터 미래 마감까지)
                     filter: [
                         { range: { end_date: { gte: "now-30d/d" } } }
                     ],
-                    // 2. 토픽들 중 최소 하나는 일치해야 함 (OR 연산 강제)
+                    // 2. [핵심] 토픽 합집합(OR) 연산
                     must: [
                         {
                             bool: {
+                                // topicList 중 하나라도 포함되면 매칭
                                 should: topicList.map(topic => ({
                                     match_phrase: { topics: topic }
                                 })),
@@ -110,12 +122,16 @@ exports.getOursByTopic = async (topicName, userId = null) => {
                     ]
                 }
             },
-            sort: [{ created_at: { order: "desc" } }]
+            // 3. 정렬: 무조건 등록일 최신순
+            sort: [
+                { "created_at": { "order": "desc" } }
+            ]
         });
 
+        // 데이터 가공 및 반환
         return await enrichData(response.hits.hits.map(hit => hit._source), userId);
     } catch (error) {
-        console.error('ES Error:', error);
+        console.error('getOursByTopic ES Error:', error);
         return [];
     }
 };

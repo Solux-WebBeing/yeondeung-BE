@@ -12,8 +12,6 @@ const toEsDate = (dateStr) => {
 
 /**
  * [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수
- * @param {Array} results - Elasticsearch 검색 결과 리스트
- * @param {Number|null} currentUserId - 로그인한 사용자의 ID (비로그인 시 null)
  */
 async function enrichDataWithMySQL(results, currentUserId = null) {
     if (!results || results.length === 0) return [];
@@ -37,21 +35,7 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
         userCheerSet = new Set(userCheers.map(c => c.board_id));
     }
 
-    // 3. 의제별 연대자 통계 조회
-    const [topicStats] = await pool.query(`
-        SELECT bt.board_id, t.name AS topic_name, COUNT(DISTINCT c.user_id) AS individual_topic_count
-        FROM board_topics bt JOIN topics t ON bt.topic_id = t.id
-        LEFT JOIN user_interests ui ON bt.topic_id = ui.topic_id
-        LEFT JOIN cheers c ON ui.user_id = c.user_id AND bt.board_id = c.board_id
-        WHERE bt.board_id IN (?) GROUP BY bt.board_id, bt.topic_id`, [boardIds]);
-
-    const topicStatsMap = topicStats.reduce((acc, cur) => {
-        if (!acc[cur.board_id]) acc[cur.board_id] = [];
-        acc[cur.board_id].push({ name: cur.topic_name, count: cur.individual_topic_count });
-        return acc;
-    }, {});
-
-    // 4. 썸네일 이미지 조회
+    // 3. 썸네일 이미지 조회
     const [boardImages] = await pool.query(
         `SELECT board_id, image_url FROM board_images WHERE board_id IN (?) ORDER BY id ASC`,
         [boardIds]
@@ -60,29 +44,39 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     boardImages.forEach(img => { if (!imageMap[img.board_id]) imageMap[img.board_id] = img.image_url; });
 
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayCompare = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
 
     return results.map(post => {
-        // 1. 게시글 자체의 topics 가공 (배열로 변환)
+        // [로직] 게시글 자체의 topics에서 랜덤하게 하나 선택
         const currentTopics = Array.isArray(post.topics) 
             ? post.topics 
             : (post.topics ? post.topics.split(',').map(t => t.trim()) : []);
         
-        // 2. [핵심] 게시글의 topics 배열 내에서 랜덤하게 하나 선택
         let topicName = "사회"; 
         if (currentTopics.length > 0) {
-            // 배열의 길이만큼 범위 내에서 랜덤 인덱스 추출
             const randomIndex = Math.floor(Math.random() * currentTopics.length);
             topicName = currentTopics[randomIndex];
         }
 
-        // 3. 응원 수 및 기타 변수 설정
         const totalCount = cheerMap[post.id] || 0;
+        
+        // [로직] D-Day 및 오늘 종료 여부 판별
         let dDay = "상시";
+        let isTodayEnd = false;
+
         if (post.end_date) {
             const endDate = new Date(post.end_date);
-            const diffDays = Math.ceil((new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()) - today) / (1000 * 60 * 60 * 24));
-            dDay = diffDays < 0 ? "마감" : diffDays === 0 ? "D-0" : `D-${diffDays}`;
+            const endDateCompare = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+            const diffDays = Math.ceil((endDateCompare - todayCompare) / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === 0) {
+                dDay = "D-0";
+                isTodayEnd = true;
+            } else if (diffDays < 0) {
+                dDay = "마감";
+            } else {
+                dDay = `D-${diffDays}`;
+            }
         }
 
         const format = (d, t) => d ? `${new Date(d).toISOString().split('T')[0].replace(/-/g, '. ')}${t ? ' ' + d.substring(11, 16) : ''}` : "";
@@ -98,14 +92,26 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             is_cheered: userCheerSet.has(post.id), 
             is_author: currentUserId === post.user_id, 
             dDay,
-            // 4. 게시글 topics에서 뽑은 랜덤 topicName 적용
+            isTodayEnd, // "오늘 종료" 태그용
             interestMessage: `${topicName} 의제에 관심이 있는 ${totalCount}명이 연대합니다!`
         };
     });
 }
 
 /**
- * 1. 게시글 통합 검색 (기간 필터 강화 + 비로그인 허용)
+ * 정렬 스크립트 파라미터 생성 헬퍼
+ */
+const getSortParams = () => {
+    const now = new Date();
+    return {
+        now: now.getTime(),
+        dayStart: new Date(now.setHours(0, 0, 0, 0)).getTime(),
+        dayEnd: new Date(now.setHours(23, 59, 59, 999)).getTime()
+    };
+};
+
+/**
+ * 1. 게시글 통합 검색
  */
 exports.searchPosts = async (req, res) => {
     try {
@@ -122,7 +128,7 @@ exports.searchPosts = async (req, res) => {
             esQuery.bool.filter.push({ range: { end_date: { gte: "now-30d/d" } } });
         }
 
-        // 1. 일반 다중 선택 필터 (토픽, 참여 형태, 주최 형태)
+        // 일반 필터 처리
         const addMultiFilter = (field, valueString) => {
             if (valueString) {
                 const values = valueString.split(',').map(v => v.trim()).filter(Boolean);
@@ -135,23 +141,26 @@ exports.searchPosts = async (req, res) => {
         };
         ['topics', 'participation_type', 'host_type'].forEach(f => addMultiFilter(f, req.query[f]));
 
-        // 2. [수정 포인트] 지역(Region) 및 상세 구(District) 세트 필터
-        // Region이 있으면 필수 조건으로 걸고, District가 여러 개면 그 안에서 '합집합(OR)' 처리
-        if (region) {
-            esQuery.bool.filter.push({ match_phrase: { region: region.trim() } });
-        }
-
+        // 지역/구 세트 필터
+        if (region) esQuery.bool.filter.push({ match_phrase: { region: region.trim() } });
         if (district) {
             const districts = district.split(',').map(v => v.trim()).filter(Boolean);
             if (districts.length > 0) {
                 esQuery.bool.filter.push({
-                    bool: {
-                        // 여러 구 중 하나라도 일치하면 결과에 포함 (합집합)
-                        should: districts.map(d => ({ match_phrase: { district: d } })),
-                        minimum_should_match: 1
-                    }
+                    bool: { should: districts.map(d => ({ match_phrase: { district: d } })), minimum_should_match: 1 }
                 });
             }
+        }
+
+        if (q && q.trim() !== "") {
+            esQuery.bool.must.push({
+                multi_match: {
+                    query: q,
+                    fields: ["title^5", "topics^3", "content"],
+                    type: "most_fields",
+                    operator: "or"
+                }
+            });
         }
 
         const response = await esClient.search({
@@ -165,22 +174,21 @@ exports.searchPosts = async (req, res) => {
                         script: {
                             lang: "painless",
                             source: `
-                                if (doc['end_date'].size() == 0) return 1;
-                                long now = params.now;
+                                if (doc['end_date'].size() == 0) return 2;
                                 long end = doc['end_date'].value.toInstant().toEpochMilli();
-                                return end >= now ? 0 : 2;
+                                if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
+                                if (end > params.dayEnd) return 1; // 미래 종료
+                                return 3; // 마감됨
                             `,
-                            params: { now: new Date().getTime() }
+                            params: getSortParams()
                         },
                         order: "asc"
                     }
                 },
-                { "end_date": { "order": "asc", "missing": "_last", "unmapped_type": "date" } },
-                { "_score": { "order": "desc" } }
+                { "created_at": { "order": "desc" } } // 그 외 최신순
             ]
         });
 
-        // req.user가 있으면 그 ID를, 없으면 null을 넘깁니다.
         const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
         res.status(200).json({ success: true, total: response.hits.total.value, currentPage: parseInt(page), totalPages: Math.ceil(response.hits.total.value / size), data: cardData });
 
@@ -191,7 +199,7 @@ exports.searchPosts = async (req, res) => {
 };
 
 /**
- * 2. 전체 게시글 조회 (8개 페이징 + 마감순 정렬 + 비로그인 허용)
+ * 2. 전체 게시글 조회
  */
 exports.getAllPosts = async (req, res) => {
     try {
@@ -210,17 +218,17 @@ exports.getAllPosts = async (req, res) => {
                         script: {
                             lang: "painless",
                             source: `
-                                if (doc['end_date'].size() == 0) return 1;
-                                long now = params.now;
+                                if (doc['end_date'].size() == 0) return 2;
                                 long end = doc['end_date'].value.toInstant().toEpochMilli();
-                                return end >= now ? 0 : 2;
+                                if (end >= params.dayStart && end <= params.dayEnd) return 0;
+                                if (end > params.dayEnd) return 1;
+                                return 3;
                             `,
-                            params: { now: new Date().getTime() }
+                            params: getSortParams()
                         },
                         order: "asc"
                     }
                 },
-                { "end_date": { "order": "asc", "missing": "_last" } },
                 { "created_at": { "order": "desc" } }
             ]
         });
