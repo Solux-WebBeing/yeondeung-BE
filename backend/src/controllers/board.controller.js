@@ -204,7 +204,7 @@ exports.createPost = async (req, res) => {
                     host_type: req.user.user_type, // [추가] 필터링을 위해 반드시 필요
                     participation_type, 
                     title, 
-                    topics, 
+                    topics: topicList, 
                     content,
                     start_date: toEsDate(finalStartDate),
                     end_date: toEsDate(finalEndDate),
@@ -338,7 +338,7 @@ exports.updatePost = async (req, res) => {
                 id: id.toString(),
                 refresh: true,
                 doc: { 
-                    participation_type, title, topics, content, 
+                    participation_type, title, topics: topicList, content, 
                     start_date: toEsDate(finalStartDate),
                     end_date: toEsDate(finalEndDate),
                     is_start_time_set,
