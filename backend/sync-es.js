@@ -26,7 +26,6 @@ async function sync() {
 
         console.log('✅ MySQL 연결 성공. 데이터를 조회합니다...');
 
-        // [수정] host_type을 알기 위해 users 테이블과 조인, 썸네일을 위해 board_images와 조인
         const query = `
             SELECT 
                 b.*, 
@@ -42,7 +41,13 @@ async function sync() {
             return;
         }
 
+        // rows.flatMap 내부로 로직을 이동해야 합니다.
         const operations = rows.flatMap(doc => {
+            // [수정] 각 문서(doc)별로 토픽 배열 생성
+            const topicArray = doc.topics 
+                ? doc.topics.split(',').map(t => t.trim()).filter(Boolean) 
+                : [];
+
             const suggestSet = new Set();
             if (doc.title) {
                 const cleanTitle = doc.title.replace(/[^\w\sㄱ-ㅎ가-힣]/g, ' ');
@@ -53,34 +58,30 @@ async function sync() {
                 }
                 suggestSet.add(doc.title.trim());
             }
-            if (doc.topics) {
-                doc.topics.split(',').forEach(t => {
-                    const trimmed = t.trim();
-                    if (trimmed.length >= 1) suggestSet.add(trimmed);
-                });
-            }
+
+            // suggestSet에도 배열화된 토픽들 추가
+            topicArray.forEach(t => suggestSet.add(t));
 
             return [
                 { index: { _index: INDEX_NAME, _id: doc.id } },
                 {
                     id: doc.id,
                     user_id: doc.user_id,
-                    host_type: doc.host_type, // [추가] 필터링 필수
+                    host_type: doc.host_type,
                     participation_type: doc.participation_type,
                     title: doc.title,
                     content: doc.content,
-                    topics: doc.topics,
+                    topics: topicArray, // 가공된 배열 투입
                     region: doc.region,
                     district: doc.district,
                     link: doc.link,
                     is_verified: !!doc.is_verified,
                     ai_verified: !!doc.ai_verified,
-                    thumbnail: doc.thumbnail || null, // [추가] 썸네일
+                    thumbnail: doc.thumbnail || null,
                     suggest: {
                         input: Array.from(suggestSet).filter(Boolean),
                         weight: 10
                     },
-                    // [수정] 시차 오류 방지를 위해 toISOString 대신 formatToLocalSql 사용
                     start_date: formatToLocalSql(doc.start_date),
                     end_date: formatToLocalSql(doc.end_date),
                     is_start_time_set: !!doc.is_start_time_set,
