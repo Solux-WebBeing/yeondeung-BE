@@ -194,7 +194,24 @@ exports.deleteReportedPost = async (req, res) => {
         connection = await pool.getConnection();
         await connection.beginTransaction();
 
-        // 1. MySQL 게시글 삭제 
+        // 1. 알림에 사용할 게시글 정보(작성자 ID, 제목) 선조회
+        const [boardRows] = await connection.query("SELECT user_id, title FROM boards WHERE id = ?", [boardId]);
+        if (boardRows.length === 0) {
+            await connection.rollback();
+            return fail(res, '삭제할 게시글을 찾을 수 없거나 이미 삭제되었습니다.', 404);
+        }
+        const { user_id, title } = boardRows[0];
+
+        // 2.  알림 메시지 생성 및 발송
+        const notificationMessage = 
+            `[게시글 삭제 조치 안내]\n` +
+            `신고된 게시글에 대해 운영진이 검토한 결과, 연등 서비스 운영 정책에 따라 해당 게시글이 삭제되었습니다.\n` +
+            `삭제 사유: ${adminReason}\n` +
+            `삭제된 게시글: ${title}`;
+
+        await notificationUtil.sendSystemNotification(connection, user_id, notificationMessage);
+
+        // 3. MySQL 게시글 삭제 
         // 테이블에 설정된 ON DELETE CASCADE 덕분에 이미지, 의제 매핑, 응원봉 데이터가 자동으로 함께 삭제됩니다.
         const [deleteResult] = await connection.query("DELETE FROM boards WHERE id = ?", [boardId]);
 
@@ -203,7 +220,7 @@ exports.deleteReportedPost = async (req, res) => {
             return fail(res, '삭제할 게시글을 찾을 수 없거나 이미 삭제되었습니다.', 404);
         }
 
-        // 2. 신고 상태 업데이트 및 사유(admin_comment) 기록
+        // 4. 신고 상태 업데이트 및 사유(admin_comment) 기록
         // 추후 SSE 알림 구현 시 이 admin_comment를 불러와서 사용자에게 알림을 보낼 수 있습니다.
         const updateReportSql = `
             UPDATE reports 
@@ -212,10 +229,10 @@ exports.deleteReportedPost = async (req, res) => {
         `;
         await connection.query(updateReportSql, [adminReason, reportId]);
 
-        // 3. 트랜잭션 커밋
+        // 5. 트랜잭션 커밋
         await connection.commit();
 
-        // 4. ELK 실시간 인덱스 삭제
+        // 6. ELK 실시간 인덱스 삭제
         // 검색 결과에서 즉시 사라지게 처리합니다.
         try {
             await esClient.delete({
