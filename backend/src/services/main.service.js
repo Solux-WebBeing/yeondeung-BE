@@ -58,6 +58,8 @@ const enrichData = async (items, currentUserId = null) => {
             return isNaN(d.getTime()) ? "" : `${d.getFullYear()}. ${String(d.getMonth() + 1).padStart(2, '0')}. ${String(d.getDate()).padStart(2, '0')}`;
         };
 
+        const displayTopic = (Array.isArray(item.topics) ? item.topics[0] : (item.topics ? item.topics.split(',')[0] : '사회'));
+
         return {
             id: item.id,
             title: item.title,
@@ -72,30 +74,45 @@ const enrichData = async (items, currentUserId = null) => {
             isAuthor: currentUserId === item.user_id, // 본인 글 여부
             dDay,
             isTodayEnd,
-            interestMessage: `${(item.topics && typeof item.topics === 'string' ? item.topics.split(',')[0] : (Array.isArray(item.topics) ? item.topics[0] : '사회'))} 의제 관심자 ${count}명이 연대합니다!`
+            interestMessage: `${displayTopic} 의제에 관심이 있는 ${count}명이 연대합니다!`
         };
     });
 };
 
 /**
  * 1. 우리들의 연대 (userId 파라미터 추가)
+ * 주제(topicName)들 중 하나라도 포함된 게시글을 가져옵니다. (OR 연산)
  */
 exports.getOursByTopic = async (topicName, userId = null) => {
     if (!topicName) return [];
     try {
         const topicList = topicName.split(',').map(t => t.trim());
+        
         const response = await esClient.search({
             index: 'boards',
             size: 4,
             query: {
                 bool: {
-                    filter: [{ range: { end_date: { gte: "now-30d/d" } } }], // 검색과 동일하게 30일 여유
-                    should: topicList.map(topic => ({ match_phrase: { topics: topic } })),
-                    minimum_should_match: 1
+                    // 1. 반드시 만족해야 하는 필터 (날짜)
+                    filter: [
+                        { range: { end_date: { gte: "now-30d/d" } } }
+                    ],
+                    // 2. 토픽들 중 최소 하나는 일치해야 함 (OR 연산 강제)
+                    must: [
+                        {
+                            bool: {
+                                should: topicList.map(topic => ({
+                                    match_phrase: { topics: topic }
+                                })),
+                                minimum_should_match: 1
+                            }
+                        }
+                    ]
                 }
             },
             sort: [{ created_at: { order: "desc" } }]
         });
+
         return await enrichData(response.hits.hits.map(hit => hit._source), userId);
     } catch (error) {
         console.error('ES Error:', error);

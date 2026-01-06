@@ -10,8 +10,9 @@ const { verifyTokenOptional } = require('../middlewares/auth.middleware');
  *     summary: 게시글 통합 검색 (ELK)
  *     description: >
  *       키워드 검색 및 의제, 지역, 참여 방식 등 다양한 필터를 조합하여 게시글을 검색합니다.
- *       기간 필터(start_date, end_date) 입력 시 해당 범위 내에 완전히 포함된 게시글만 반환합니다.
- *       각 필터 항목은 쉼표(,)를 통해 다중 선택(OR 연산)이 가능합니다. (로그인 필수)
+ *       - **지역 필터**: `region`은 단일 시/도, `district`는 쉼표로 구분된 여러 구를 입력하면 OR 결과를 반환합니다.
+ *       - **기타 필터**: `topics`, `participation_type`, `host_type`은 쉼표로 다중 선택(OR) 가능합니다.
+ *       - **인증**: 비로그인 접근 가능하며, 로그인 시 응원 여부(is_cheered) 등이 포함됩니다.
  *     tags:
  *       - Search
  *     security:
@@ -21,48 +22,57 @@ const { verifyTokenOptional } = require('../middlewares/auth.middleware');
  *         name: q
  *         schema:
  *           type: string
- *         description: 검색 키워드 (제목, 본문 대상)
- *
+ *         description: 검색 키워드 (제목, 본문, 의제 대상)
  *       - in: query
  *         name: topics
  *         schema:
  *           type: string
- *         description: 의제 필터 (쉼표로 구분)
- *
+ *         description: 의제 필터 (쉼표로 구분, 예: 복지,인권)
  *       - in: query
  *         name: region
  *         schema:
  *           type: string
- *         description: 시/도 지역 필터 (쉼표로 구분)
- *
+ *         description: 시/도 지역 필터 (단일 선택, 예: 서울특별시)
+ *       - in: query
+ *         name: district
+ *         schema:
+ *           type: string
+ *         description: 상세 구/군 필터 (쉼표 구분 OR 검색, 예: 용산구,강서구)
+ *       - in: query
+ *         name: participation_type
+ *         schema:
+ *           type: string
+ *         description: 참여 방식 필터 (쉼표 구분, 예: 오프라인,온라인)
+ *       - in: query
+ *         name: host_type
+ *         schema:
+ *           type: string
+ *         description: 주최 대상 필터 (쉼표 구분, 예: 개인,단체)
  *       - in: query
  *         name: start_date
  *         schema:
  *           type: string
  *           format: date
  *         description: 조회 범위 시작일 (YYYY-MM-DD)
- *
  *       - in: query
  *         name: end_date
  *         schema:
  *           type: string
  *           format: date
  *         description: 조회 범위 종료일 (YYYY-MM-DD)
- *
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           default: 1
  *         description: 페이지 번호 (한 페이지당 8개)
- *
  *     responses:
- *       '200':
+ *       200:
  *         description: 검색 성공
- *       '401':
- *         description: 인증 실패
+ *       500:
+ *         description: 검색 엔진 또는 서버 오류
  */
-router.get('/',verifyTokenOptional, searchController.searchPosts);
+router.get('/', verifyTokenOptional, searchController.searchPosts);
 
 /**
  * @swagger
@@ -70,8 +80,8 @@ router.get('/',verifyTokenOptional, searchController.searchPosts);
  *   get:
  *     summary: 전체 게시글 조회 (ELK)
  *     description: >
- *       필터 없이 인덱스에 등록된 모든 게시글을 불러옵니다.
- *       마감 임박 활동이 최상단에 노출되도록 정렬되어 반환됩니다. (로그인 필수)
+ *       필터 없이 모든 게시글을 조회합니다.
+ *       진행 중인 글이 우선 노출되며 마감 임박 순으로 정렬됩니다. (비로그인 허용)
  *     tags:
  *       - Search
  *     security:
@@ -83,10 +93,9 @@ router.get('/',verifyTokenOptional, searchController.searchPosts);
  *           type: integer
  *           default: 1
  *         description: 페이지 번호 (한 페이지당 8개)
- *
  *     responses:
- *       '200':
- *         description: 조회 성공. 마감 임박 순으로 정렬된 게시글 리스트 반환
+ *       200:
+ *         description: 조회 성공
  *         content:
  *           application/json:
  *             schema:
@@ -104,20 +113,19 @@ router.get('/',verifyTokenOptional, searchController.searchPosts);
  *                   type: array
  *                   items:
  *                     type: object
- *
- *       '401':
- *         description: 인증 실패
- *       '500':
+ *       500:
  *         description: 서버 오류
  */
-router.get('/all',verifyTokenOptional, searchController.getAllPosts);
+router.get('/all', verifyTokenOptional, searchController.getAllPosts);
 
 /**
  * @swagger
  * /api/search/suggest:
  *   get:
  *     summary: 실시간 추천 검색어 제안
- *     description: 사용자가 입력 중인 텍스트(q)를 바탕으로 자동 완성된 검색어 목록을 반환합니다. (로그인 필수)
+ *     description: >
+ *       사용자가 입력 중인 텍스트(q)를 기반으로
+ *       Elasticsearch Completion Suggester 결과를 반환합니다. (비로그인 허용)
  *     tags:
  *       - Search
  *     security:
@@ -129,14 +137,22 @@ router.get('/all',verifyTokenOptional, searchController.getAllPosts);
  *         schema:
  *           type: string
  *         description: 입력 중인 검색어
- *         example: 환
- *
+ *         example: 환경
  *     responses:
- *       '200':
+ *       200:
  *         description: 추천 검색어 목록 반환
- *       '401':
- *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: string
  */
-router.get('/suggest',verifyTokenOptional, searchController.getSuggestions);
+router.get('/suggest', verifyTokenOptional, searchController.getSuggestions);
 
 module.exports = router;

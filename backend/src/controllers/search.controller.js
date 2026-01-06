@@ -63,9 +63,21 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     today.setHours(0, 0, 0, 0);
 
     return results.map(post => {
-        const stats = topicStatsMap[post.id] || [];
-        const selected = stats.length > 0 ? stats[Math.floor(Math.random() * stats.length)] : { name: "사회", count: 0 };
+        // 1. 게시글 자체의 topics 가공 (배열로 변환)
+        const currentTopics = Array.isArray(post.topics) 
+            ? post.topics 
+            : (post.topics ? post.topics.split(',').map(t => t.trim()) : []);
         
+        // 2. [핵심] 게시글의 topics 배열 내에서 랜덤하게 하나 선택
+        let topicName = "사회"; 
+        if (currentTopics.length > 0) {
+            // 배열의 길이만큼 범위 내에서 랜덤 인덱스 추출
+            const randomIndex = Math.floor(Math.random() * currentTopics.length);
+            topicName = currentTopics[randomIndex];
+        }
+
+        // 3. 응원 수 및 기타 변수 설정
+        const totalCount = cheerMap[post.id] || 0;
         let dDay = "상시";
         if (post.end_date) {
             const endDate = new Date(post.end_date);
@@ -78,18 +90,16 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
         return {
             id: post.id,
             title: post.title,
-            thumbnail: imageMap[post.id] || "https://your-domain.com/assets/default-thumbnail.png",
-            topics: post.topics ? (Array.isArray(post.topics) ? post.topics : post.topics.split(',').map(t => t.trim())) : [],
+            thumbnail: imageMap[post.id] || "none",
+            topics: currentTopics,
             location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
             dateDisplay: (post.start_date && post.end_date) ? `${format(post.start_date, post.is_start_time_set)} ~ ${format(post.end_date, post.is_end_time_set)}` : "상시 진행",
-            cheerCount: cheerMap[post.id] || 0,
-            
-            // [추가] 로그인 여부에 따른 동적 필드
+            cheerCount: totalCount,
             is_cheered: userCheerSet.has(post.id), 
             is_author: currentUserId === post.user_id, 
-
             dDay,
-            interestMessage: `${selected.name} 의제에 관심이 있는 ${selected.count}명이 연대합니다!`
+            // 4. 게시글 topics에서 뽑은 랜덤 topicName 적용
+            interestMessage: `${topicName} 의제에 관심이 있는 ${totalCount}명이 연대합니다!`
         };
     });
 }
@@ -112,6 +122,7 @@ exports.searchPosts = async (req, res) => {
             esQuery.bool.filter.push({ range: { end_date: { gte: "now-30d/d" } } });
         }
 
+        // 1. 일반 다중 선택 필터 (토픽, 참여 형태, 주최 형태)
         const addMultiFilter = (field, valueString) => {
             if (valueString) {
                 const values = valueString.split(',').map(v => v.trim()).filter(Boolean);
@@ -122,17 +133,25 @@ exports.searchPosts = async (req, res) => {
                 }
             }
         };
-        ['topics', 'region', 'district', 'participation_type', 'host_type'].forEach(f => addMultiFilter(f, req.query[f]));
+        ['topics', 'participation_type', 'host_type'].forEach(f => addMultiFilter(f, req.query[f]));
 
-        if (q && q.trim() !== "") {
-            esQuery.bool.must.push({
-                multi_match: {
-                    query: q,
-                    fields: ["title^5", "topics^3", "content"],
-                    type: "most_fields",
-                    operator: "or"
-                }
-            });
+        // 2. [수정 포인트] 지역(Region) 및 상세 구(District) 세트 필터
+        // Region이 있으면 필수 조건으로 걸고, District가 여러 개면 그 안에서 '합집합(OR)' 처리
+        if (region) {
+            esQuery.bool.filter.push({ match_phrase: { region: region.trim() } });
+        }
+
+        if (district) {
+            const districts = district.split(',').map(v => v.trim()).filter(Boolean);
+            if (districts.length > 0) {
+                esQuery.bool.filter.push({
+                    bool: {
+                        // 여러 구 중 하나라도 일치하면 결과에 포함 (합집합)
+                        should: districts.map(d => ({ match_phrase: { district: d } })),
+                        minimum_should_match: 1
+                    }
+                });
+            }
         }
 
         const response = await esClient.search({
