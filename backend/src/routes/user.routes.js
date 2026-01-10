@@ -299,6 +299,55 @@ router.post('/email/verify-code', userController.verifyEmailCode);
  */
 router.post('/login', userController.login);
 
+
+/**
+ * @swagger
+ * /api/users/refresh-token:
+ *   post:
+ *     summary: Access Token 재발급
+ *     description: "헤더에 있는 (만료된) Access Token으로 사용자를 식별하고, DB의 Refresh Token을 확인하여 토큰을 재발급합니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       "200":
+ *         description: 토큰 재발급 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 message:
+ *                   type: string
+ *                   example: 토큰 재발급 성공
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                       description: 새로 발급된 Access Token
+ *       "401":
+ *         description: DB에 Refresh Token이 없거나 만료됨
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: fail
+ *                 message:
+ *                   type: string
+ *                   example: 로그인 세션이 만료되었습니다. 다시 로그인해주세요.
+ *       "500":
+ *         description: 서버 에러
+ */
+router.post('/refresh-token', userController.refreshToken);
+
+
 // --- 최초 로그인 추가 정보 설정 ---
 
 /**

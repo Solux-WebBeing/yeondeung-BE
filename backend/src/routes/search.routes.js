@@ -18,7 +18,7 @@ const verifyTokenOptional = (req, res, next) => next(); // 임시 미들웨어 (
  * @swagger
  * /api/search:
  *   get:
- *     summary: "게시글 통합 검색 (실제 테스트용)"
+ *     summary: "게시글 통합 검색"
  *     tags:
  *       - Search
  *     parameters:
