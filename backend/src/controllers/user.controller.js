@@ -916,7 +916,7 @@ exports.withdrawMember = async (req, res) => {
 
     connection = await pool.getConnection();
     const [users] = await connection.query('SELECT password FROM users WHERE id = ?', [id]);
-    
+
     // 1. 비밀번호 일치 확인
     const isMatch = await bcrypt.compare(password, users[0].password);
     if (!isMatch) return fail(res, '비밀번호가 일치하지 않습니다.', 400);
