@@ -934,3 +934,106 @@ exports.withdrawMember = async (req, res) => {
     if (connection) connection.release();
   }
 };
+
+/**
+ * 13. 아이디 찾기
+ */
+exports.findUserid = async (req, res) => {
+  let connection;
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return fail(res, '이메일을 입력해주세요.', 400);
+    }
+    connection = await pool.getConnection();
+    const sql = 'SELECT userid FROM users WHERE email = ?';
+    const [rows] = await connection.query(sql, [email]);
+    if (rows.length === 0) {
+      return fail(res, '입력하신 정보와 일치하는 회원이 없습니다.', 404);
+    }
+    return success(res, '아이디:', { userid: rows[0].userid });
+  } catch (error) {
+    console.error('Server Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 14. 비밀번호 재설정 - 인증번호 발송
+ */
+exports.sendPasswordResetCode = async (req, res) => {
+  let connection;
+  try {
+    const { userid, email } = req.body;
+    if (!userid || !email) {
+      return fail(res, '아이디와 이메일을 모두 입력해주세요.', 400);
+    }
+    connection = await pool.getConnection();
+    const userSql = 'SELECT 1 FROM users WHERE userid = ? AND email = ?';
+    const [users] = await connection.query(userSql, [userid, email]);
+    if (users.length === 0) {
+      return fail(res, '아이디 또는 이메일을 잘못 입력했습니다. 입력하신 내용을 다시 확인해주세요.', 404);
+    }
+    const code = generateVerificationCode();
+    const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10분 후 만료
+    const upsertSql = `
+      INSERT INTO email_verifications (email, code, expires_at, verified)
+      VALUES (?, ?, ?, false)
+      ON DUPLICATE KEY UPDATE code = ?, expires_at = ?, verified = false
+    `;
+    await connection.query(upsertSql, [email, code, expires_at, code, expires_at]);
+    await emailService.sendVerificationEmail(email, code);
+    return success(res, '인증번호가 발송되었습니다. 10분 이내에 입력해주세요.');
+  } catch (error) {
+    console.error('Server Error:', error);
+    if (error.message.includes('인증 이메일 발송에 실패')) {
+      return fail(res, '이메일 발송 중 오류가 발생했습니다. 관리자에게 문의하세요.', 500);
+    }
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 15. 비밀번호 재설정 - 새 비밀번호 설정
+ */
+exports.resetPassword = async (req, res) => {
+  let connection;
+  try {
+    const { email, password, password_confirm } = req.body;
+    if (!email || !password || !password_confirm) {
+      return fail(res, '모든 필드를 입력해주세요.', 400);
+    }
+    if (password !== password_confirm) {
+      return fail(res, '비밀번호가 일치하지 않습니다.', 400);
+    }
+    if (!validatePassword(password)) {
+      return fail(res, '영문, 숫자 포함 최소 8자로 입력해주세요.', 400);
+    }
+    connection = await pool.getConnection();
+    const sql = 'SELECT * FROM email_verifications WHERE email = ?';
+    const [rows] = await connection.query(sql, [email]);
+    if (rows.length === 0) return fail(res, '인증번호 요청 내역이 없습니다.', 404);
+    const verification = rows[0];
+    if (!verification.verified) {
+      return fail(res, '이메일 인증이 완료되지 않았습니다.', 403);
+    }
+
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // 비밀번호 업데이트 및 인증 정보 삭제
+    await connection.query('UPDATE users SET password = ? WHERE email = ?', [hashedPassword, email]);
+    await connection.query('DELETE FROM email_verifications WHERE email = ?', [email]);
+
+    return success(res, '비밀번호가 재설정되었습니다.');
+  } catch (error) {
+    console.error('Server Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
