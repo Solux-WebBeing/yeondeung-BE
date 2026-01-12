@@ -348,7 +348,7 @@ exports.login = async (req, res) => {
     }
 
     connection = await pool.getConnection();
-    
+
     // 1. users 테이블에서 기본 정보 조회
     const sql = 'SELECT * FROM users WHERE userid = ?';
     const [users] = await connection.query(sql, [userid]);
@@ -358,7 +358,7 @@ exports.login = async (req, res) => {
     }
 
     const user = users[0];
-    
+
     // 2. 비밀번호 검증
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
@@ -366,21 +366,21 @@ exports.login = async (req, res) => {
     }
 
     // 3. 닉네임(또는 단체명) 가져오기
-    let nickname = ''; 
+    let nickname = '';
 
     if (user.user_type === 'INDIVIDUAL') {
       const [profiles] = await connection.query(
-        'SELECT nickname FROM individual_profiles WHERE user_id = ?', 
+        'SELECT nickname FROM individual_profiles WHERE user_id = ?',
         [user.id]
       );
       if (profiles.length > 0) nickname = profiles[0].nickname;
 
     } else if (user.user_type === 'ORGANIZATION') {
       const [profiles] = await connection.query(
-        'SELECT org_name FROM organization_profiles WHERE user_id = ?', 
+        'SELECT org_name FROM organization_profiles WHERE user_id = ?',
         [user.id]
       );
-      
+
       // 승인 상태 체크
       if (user.approval_status === 'PENDING') {
         return fail(res, '관리자 승인 대기 중인 계정입니다.', 403);
@@ -388,38 +388,53 @@ exports.login = async (req, res) => {
       if (user.approval_status === 'REJECTED') {
         return fail(res, '가입이 거절된 계정입니다. 관리자에게 문의하세요.', 403);
       }
-      
+
       if (profiles.length > 0) nickname = profiles[0].org_name;
     }
 
-    // --- 최초 로그인 여부 확인 (is_first_login 값 그대로 반환) ---
+    // --- 최초 로그인 여부 확인 ---
     const isFirstLogin = (user.is_first_login === 0 || user.is_first_login === false);
+
+    // 4. 토큰 발급 (Access & Refresh)
     
-    // 4. JWT 페이로드 생성
+    // (1) Payload 구성
     const payload = {
       id: user.id,
       role: user.role,
-      nickname: nickname, 
+      nickname: nickname,
       email: user.email,
       userid: user.userid,
       user_type: user.user_type,
       is_first_login: isFirstLogin
     };
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
+    // (2) Access Token (유효기간 짧게: 예: 1시간)
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: '1h',
     });
 
+    // (3) Refresh Token (유효기간 길게: 예: 14일)
+    // Refresh Token에는 보통 민감한 정보를 넣지 않고 식별자(id) 정도만 넣습니다.
+    const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET, {
+      expiresIn: '14d',
+    });
+
+    // 5. Refresh Token DB에 저장 (업데이트)
+    await connection.query(
+      'UPDATE users SET refresh_token = ? WHERE id = ?',
+      [refreshToken, user.id]
+    );
+
     console.log('=== 로그인 성공 ===');
     console.log('ID:', user.userid);
-    console.log('Type:', user.user_type);
-    console.log('Nickname:', nickname); 
 
-    success(res, '로그인 성공', { 
-        token, 
-        nickname: nickname,
-        user_type: user.user_type,
-        is_first_login: isFirstLogin 
+    // 클라이언트에 두 토큰 모두 전달
+    success(res, '로그인 성공', {
+      accessToken,   // 변수명 변경 (명확하게)
+      refreshToken,  // 추가됨
+      nickname: nickname,
+      user_type: user.user_type,
+      is_first_login: isFirstLogin
     });
 
   } catch (error) {
@@ -1033,6 +1048,105 @@ exports.resetPassword = async (req, res) => {
   } catch (error) {
     console.error('Server Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 16. 토큰 재발급 (Refresh Token 검증)
+ */
+exports.refreshToken = async (req, res) => {
+  let connection;
+  try {
+    // 1. 헤더에서 Access Token 추출
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return fail(res, '토큰이 없습니다.', 401);
+    }
+    const accessToken = authHeader.split(' ')[1];
+
+    // 2. Access Token 해독 (만료되었어도 내용을 보기 위해 ignoreExpiration 옵션 사용)
+    let decodedAccess;
+    try {
+      decodedAccess = jwt.verify(accessToken, process.env.JWT_SECRET, {
+        ignoreExpiration: true, // 만료된 토큰도 허용
+      });
+    } catch (err) {
+      return fail(res, '유효하지 않은 Access Token입니다.', 401);
+    }
+
+    if (!decodedAccess.id) {
+      return fail(res, '토큰에 사용자 정보가 없습니다.', 401);
+    }
+
+    connection = await pool.getConnection();
+
+    // 3. DB에서 해당 유저의 Refresh Token 조회
+    const [users] = await connection.query(
+      'SELECT * FROM users WHERE id = ?',
+      [decodedAccess.id]
+    );
+
+    if (users.length === 0) {
+      return fail(res, '사용자를 찾을 수 없습니다.', 404);
+    }
+
+    const user = users[0];
+    const dbRefreshToken = user.refresh_token;
+
+    if (!dbRefreshToken) {
+      return fail(res, '로그인 정보가 없습니다. 다시 로그인해주세요.', 401);
+    }
+
+    // 4. DB에 있는 Refresh Token 검증 (유효기간 확인)
+    try {
+      jwt.verify(dbRefreshToken, process.env.JWT_REFRESH_SECRET);
+    } catch (err) {
+      // Refresh Token마저 만료되었다면 강제 로그아웃 처리 필요
+      return fail(res, '로그인 세션이 만료되었습니다. 다시 로그인해주세요.', 401);
+    }
+
+    // 5. 닉네임 조회 (Payload 구성을 위해)
+    let nickname = '';
+    if (user.user_type === 'INDIVIDUAL') {
+      const [profiles] = await connection.query(
+        'SELECT nickname FROM individual_profiles WHERE user_id = ?', [user.id]
+      );
+      if (profiles.length > 0) nickname = profiles[0].nickname;
+    } else if (user.user_type === 'ORGANIZATION') {
+      const [profiles] = await connection.query(
+        'SELECT org_name FROM organization_profiles WHERE user_id = ?', [user.id]
+      );
+      if (profiles.length > 0) nickname = profiles[0].org_name;
+    }
+
+    const isFirstLogin = (user.is_first_login === 0 || user.is_first_login === false);
+
+    // 6. 새로운 Access Token 발급
+    const newPayload = {
+      id: user.id,
+      role: user.role,
+      nickname: nickname,
+      email: user.email,
+      userid: user.userid,
+      user_type: user.user_type,
+      is_first_login: isFirstLogin
+    };
+
+    const newAccessToken = jwt.sign(newPayload, process.env.JWT_SECRET, {
+      expiresIn: '1h',
+    });
+
+    console.log(`=== Access Token 재발급 완료 (User ID: ${user.userid}) ===`);
+
+    success(res, '토큰 재발급 성공', {
+      accessToken: newAccessToken
+    });
+
+  } catch (error) {
+    console.error('Refresh Token Error:', error);
+    fail(res, '서버 에러가 발생했습니다.', 500);
   } finally {
     if (connection) connection.release();
   }

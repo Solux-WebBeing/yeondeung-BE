@@ -67,4 +67,4 @@ CREATE TABLE email_verifications (
 -- 외래 키 검사 재활성화
 SET FOREIGN_KEY_CHECKS = 1;
 
-UPDATE users SET role = 'ADMIN' WHERE userid = 'thdtjgus';
+-- UPDATE users SET role = 'ADMIN' WHERE userid = 'sallysong';
