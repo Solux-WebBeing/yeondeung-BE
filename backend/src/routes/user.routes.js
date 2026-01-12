@@ -749,5 +749,133 @@ router.patch('/notifications/read-all', verifyToken, notificationController.mark
  */
 router.post('/logout', verifyToken, userController.logout);
 
+/**
+ * @swagger
+ * /api/users/find-userid:
+ *   post:
+ *     summary: 아이디 찾기
+ *     description: 사용자는 이메일을 입력해 가입된 아이디를 찾습니다.
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: 회원가입 시 사용한 이메일 주소
+ *     responses:
+ *       '200':
+ *         description: 가입된 아이디를 찾았습니다.
+ *       '400':
+ *         description: 이메일을 입력해주세요.
+ *       '404':
+ *         description: 입력하신 정보와 일치하는 회원이 없습니다.
+ */
+router.post('/find-userid', userController.findUserid);
+
+/**
+ * @swagger
+ * /api/users/password-reset/send-code:
+ *   post:
+ *     summary: 비밀번호 재설정 - 인증번호 발송
+ *     description: 재설정 전 이메일 인증을 위해 인증번호를 발송합니다. (10분)
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [userid, email]
+ *             properties:
+ *               userid:
+ *                 type: string
+ *                 description: 사용자 아이디
+ *               email:
+ *                 type: string
+ *                 description: 회원가입 시 사용한 이메일 주소
+ *     responses:
+ *       '200':
+ *         description: '인증번호가 발송되었습니다. 10분 이내에 입력해주세요.'
+ *       '400':
+ *         description: 아이디와 이메일을 모두 입력해주세요.
+ *       '404':
+ *         description: 아이디 또는 이메일을 잘못 입력했습니다. 입력하신 내용을 다시 확인해주세요.
+ */
+router.post('/password-reset/send-code', userController.sendPasswordResetCode);
+
+/**
+ * @swagger
+ * /api/users/password-reset/verify-code:
+ *   post:
+ *     summary: 비밀번호 재설정 - 인증번호 확인
+ *     description: 발송된 인증번호와 이메일을 검증합니다.
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, code]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: 인증번호를 받은 이메일
+ *               code:
+ *                 type: string
+ *                 description: 6자리 인증번호
+ *     responses:
+ *       '200':
+ *         description: 이메일 인증에 성공했습니다.
+ *       '400':
+ *         description: 입력값 오류 또는 인증번호 불일치.
+ *       '404':
+ *         description: 인증번호 요청 내역이 없습니다.
+ *       '410':
+ *         description: 인증번호가 만료되었습니다
+ */
+router.post('/password-reset/verify-code', userController.verifyEmailCode);
+
+/**
+ * @swagger
+ * /api/users/password-reset/reset:
+ *   post:
+ *     summary: 비밀번호 재설정 - 새 비밀번호 설정
+ *     description: 새로운 비밀번호를 설정합니다. (이메일 인증 필수)
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password, password_confirm]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: 인증된 이메일
+ *               password:
+ *                 type: string
+ *                 description: '새 비밀번호 (영문, 숫자 포함 최소 8자)'
+ *               password_confirm:
+ *                 type: string
+ *                 description: 새 비밀번호 확인
+ *     responses:
+ *       '200':
+ *         description: 비밀번호가 재설정되었습니다.
+ *       '400':
+ *         description: '입력값 오류 (필드 누락, 비밀번호 불일치/정책 위반)'
+ *       '403':
+ *         description: 이메일 인증 미완료
+ *       '404':
+ *         description: 입력하신 정보와 일치하는 회원이 없습니다
+ */
+router.post('/password-reset/reset', userController.resetPassword);
+
 
 module.exports = router;
