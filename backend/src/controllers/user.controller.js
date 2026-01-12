@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { success, fail } = require('../util/response.util.js');
 const crypto = require('crypto');
-const emailService = require('../util/email.service.js');
+const emailService = require('../services/email.service.js');
 
 // --- 유틸리티 함수 ---
 const validatePassword = (password) => {
@@ -410,7 +410,7 @@ exports.login = async (req, res) => {
 
     // (2) Access Token (유효기간 짧게: 예: 1시간)
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: '1h',
+      expiresIn: '1h', // 유효기간 1시간
     });
 
     // (3) Refresh Token (유효기간 길게: 예: 14일)
@@ -1032,7 +1032,7 @@ exports.refreshToken = async (req, res) => {
     };
 
     const newAccessToken = jwt.sign(newPayload, process.env.JWT_SECRET, {
-      expiresIn: '1h',
+      expiresIn: '1h',  // 유효기간 1시간
     });
 
     console.log(`=== Access Token 재발급 완료 (User ID: ${user.userid}) ===`);
