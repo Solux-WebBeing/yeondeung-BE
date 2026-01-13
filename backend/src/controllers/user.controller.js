@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { success, fail } = require('../util/response.util.js');
 const crypto = require('crypto');
-const emailService = require('../services/email.service.js');
+const emailService = require('../util/email.service.js');
 
 // --- 유틸리티 함수 ---
 const validatePassword = (password) => {

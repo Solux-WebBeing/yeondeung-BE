@@ -206,8 +206,8 @@
                 data.forEach(org => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td class="px-6 py-4 font-medium">${org.org_name}</td>
-                        <td class="px-6 py-4 text-sm text-gray-600">${org.userid} / ${org.email}</td>
+                        <td class="px-6 py-4 font-medium">${org.orgName || org.org_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-600">${org.userId || org.userid} / ${org.email}</td>
                         <td class="px-6 py-4 text-center">
                             <button onclick="approveOrg(${org.id}, '${org.org_name}')" class="bg-green-600 text-white px-3 py-1 rounded mr-2">승인</button>
                             <button onclick="openModal('ORG_REJECT', ${org.id}, '${org.org_name}')" class="bg-red-600 text-white px-3 py-1 rounded">거절</button>
