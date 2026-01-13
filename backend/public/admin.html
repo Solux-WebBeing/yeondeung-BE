@@ -142,29 +142,45 @@
 
             // --- 1. 로그인/로그아웃 ---
             document.getElementById('login-form').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const userid = document.getElementById('userid').value;
-                const password = document.getElementById('password').value;
+    e.preventDefault();
+    const userid = document.getElementById('userid').value;
+    const password = document.getElementById('password').value;
 
-                try {
-                    const res = await fetch(`${API_BASE_URL}/users/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userid, password })
-                    });
-                    const result = await res.json();
-                    if (!res.ok) throw new Error(result.message);
+    try {
+        const res = await fetch(`${API_BASE_URL}/users/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userid, password })
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.message);
 
-                    adminToken = result.data.token;
-                    loginView.classList.add('hidden');
-                    dashboardView.classList.remove('hidden');
-                    fetchAllData();
-                } catch (err) {
-                    const errBox = document.getElementById('login-message-box');
-                    errBox.textContent = err.message;
-                    errBox.classList.remove('hidden');
-                }
-            });
+        adminToken = result.data.token;
+
+        // ---------------------------------------------------------
+        // ★ [여기부터] 화면 글씨 바꾸는 코드 추가
+        // ---------------------------------------------------------
+        const tokenDisplay = document.getElementById('token-display');
+        
+        // 1. 텍스트 변경 ("로그인 필요" -> "관리자 접속 완료...")
+        tokenDisplay.textContent = `관리자 접속 완료 (Token: ${adminToken.substring(0, 10)}...)`;
+        
+        // 2. 색상 변경 (회색 -> 초록색) - 필수는 아니지만 보기 좋게
+        tokenDisplay.classList.remove('bg-gray-100', 'text-gray-600');
+        tokenDisplay.classList.add('bg-green-100', 'text-green-700');
+        // ---------------------------------------------------------
+        // ★ [여기까지] 추가하시면 됩니다.
+        // ---------------------------------------------------------
+
+        loginView.classList.add('hidden');
+        dashboardView.classList.remove('hidden');
+        fetchAllData();
+        } catch (err) {
+            const errBox = document.getElementById('login-message-box');
+            errBox.textContent = err.message;
+            errBox.classList.remove('hidden');
+        }
+    });
 
             document.getElementById('logout-btn').addEventListener('click', () => location.reload());
 
