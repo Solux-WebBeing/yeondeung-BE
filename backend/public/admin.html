@@ -116,268 +116,299 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const API_BASE_URL = 'http://3.36.147.62:8000/api'; 
-            let adminToken = ''; 
+    document.addEventListener('DOMContentLoaded', () => {
+        // ★ 서버 주소 확인 (사용자 환경에 맞게 유지)
+        const API_BASE_URL = 'http://3.36.147.62:8000/api'; 
+        let adminToken = ''; 
 
-            // DOM Elements
-            const loginView = document.getElementById('login-view');
-            const dashboardView = document.getElementById('dashboard-view');
-            const orgTableBody = document.getElementById('org-table-body');
-            const reportTableBody = document.getElementById('report-table-body');
-            const editTableBody = document.getElementById('edit-table-body'); // 추가됨
-            const editEmpty = document.getElementById('edit-empty');
-            const messageBox = document.getElementById('message-box');
-            
-            // Modal Elements
-            const reasonModal = document.getElementById('reason-modal');
-            const reasonInput = document.getElementById('reason-input');
-            const modalTitle = document.getElementById('modal-title');
-            const modalDesc = document.getElementById('modal-desc');
-            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+        // DOM Elements
+        const loginView = document.getElementById('login-view');
+        const dashboardView = document.getElementById('dashboard-view');
+        const orgTableBody = document.getElementById('org-table-body');
+        const reportTableBody = document.getElementById('report-table-body');
+        const editTableBody = document.getElementById('edit-table-body');
+        const editEmpty = document.getElementById('edit-empty');
+        const messageBox = document.getElementById('message-box');
+        
+        // Modal Elements
+        const reasonModal = document.getElementById('reason-modal');
+        const reasonInput = document.getElementById('reason-input');
+        const modalTitle = document.getElementById('modal-title');
+        const modalDesc = document.getElementById('modal-desc');
+        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
 
-            let modalMode = ''; // 'ORG_REJECT' or 'REPORT_DELETE' or 'REPORT_REJECT' or 'EDIT_REJECT'
-            let activeId = null; 
-            let activeSubId = null; // boardId for reports
+        let modalMode = ''; 
+        let activeId = null; 
+        let activeSubId = null; 
 
-            // --- 1. 로그인/로그아웃 ---
-            document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const userid = document.getElementById('userid').value;
-    const password = document.getElementById('password').value;
+        // ----------------------------------------------------------------
+        // 1. 로그인 (토큰 자동 찾기 기능 추가)
+        // ----------------------------------------------------------------
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userid = document.getElementById('userid').value;
+            const password = document.getElementById('password').value;
 
-    try {
-        const res = await fetch(`${API_BASE_URL}/users/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userid, password })
+            try {
+                const res = await fetch(`${API_BASE_URL}/users/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userid, password })
+                });
+                const result = await res.json();
+                
+                if (!res.ok) throw new Error(result.message || '로그인 실패');
+
+                // ★ [핵심 수정] 토큰이 result.data.token에 있든 result.token에 있든 알아서 찾음
+                const token = (result.data && result.data.token) ? result.data.token : 
+                              (result.token ? result.token : null);
+
+                if (!token) {
+                    throw new Error('서버 응답에서 토큰을 찾을 수 없습니다.');
+                }
+
+                adminToken = token; // 전역 변수에 저장
+
+                // 화면 텍스트 변경
+                const tokenDisplay = document.getElementById('token-display');
+                if(tokenDisplay) {
+                    tokenDisplay.textContent = `관리자 접속 완료 (Token: ${adminToken.substring(0, 10)}...)`;
+                    tokenDisplay.classList.remove('bg-gray-100', 'text-gray-600');
+                    tokenDisplay.classList.add('bg-green-100', 'text-green-700');
+                }
+
+                loginView.classList.add('hidden');
+                dashboardView.classList.remove('hidden');
+                
+                // 데이터 불러오기 시작
+                fetchAllData();
+
+            } catch (err) {
+                const errBox = document.getElementById('login-message-box');
+                errBox.textContent = err.message;
+                errBox.classList.remove('hidden');
+            }
         });
-        const result = await res.json();
-        if (!res.ok) throw new Error(result.message);
 
-        adminToken = result.data.token;
+        document.getElementById('logout-btn').addEventListener('click', () => location.reload());
 
-        // ---------------------------------------------------------
-        // ★ [여기부터] 화면 글씨 바꾸는 코드 추가
-        // ---------------------------------------------------------
-        const tokenDisplay = document.getElementById('token-display');
-        
-        // 1. 텍스트 변경 ("로그인 필요" -> "관리자 접속 완료...")
-        tokenDisplay.textContent = `관리자 접속 완료 (Token: ${adminToken.substring(0, 10)}...)`;
-        
-        // 2. 색상 변경 (회색 -> 초록색) - 필수는 아니지만 보기 좋게
-        tokenDisplay.classList.remove('bg-gray-100', 'text-gray-600');
-        tokenDisplay.classList.add('bg-green-100', 'text-green-700');
-        // ---------------------------------------------------------
-        // ★ [여기까지] 추가하시면 됩니다.
-        // ---------------------------------------------------------
+        // ----------------------------------------------------------------
+        // 2. 데이터 조회 (전체)
+        // ----------------------------------------------------------------
+        const fetchAllData = () => {
+            fetchPendingOrgs();
+            fetchReports();
+            loadEditRequests();
+        };
 
-        loginView.classList.add('hidden');
-        dashboardView.classList.remove('hidden');
-        fetchAllData();
-        } catch (err) {
-            const errBox = document.getElementById('login-message-box');
-            errBox.textContent = err.message;
-            errBox.classList.remove('hidden');
-        }
-    });
+        document.getElementById('fetch-all-btn').addEventListener('click', fetchAllData);
 
-            document.getElementById('logout-btn').addEventListener('click', () => location.reload());
-
-            // --- 2. 데이터 조회 함수 ---
-            const fetchAllData = () => {
-                fetchPendingOrgs();
-                fetchReports();
-                loadEditRequests();
-            };
-
-            document.getElementById('fetch-all-btn').addEventListener('click', fetchAllData);
-
-            // 기관 목록 조회
-            const fetchPendingOrgs = async () => {
-                try {
-                    const res = await fetch(`${API_BASE_URL}/admin/pending-organizations`, {
-                        headers: { 'Authorization': `Bearer ${adminToken}` }
-                    });
-                    const result = await res.json();
-                    renderOrgTable(result.data || []);
-                } catch (err) { console.error(err); }
-            };
-
-            // 신고 목록 조회
-            const fetchReports = async () => {
-                try {
-                    const res = await fetch(`${API_BASE_URL}/admin/reports`, {
-                        headers: { 'Authorization': `Bearer ${adminToken}` }
-                    });
-                    const result = await res.json();
-                    renderReportTable(result.data || []);
-                } catch (err) { console.error(err); }
-            };
-
-            // --- 3. 렌더링 함수 ---
-            const renderOrgTable = (data) => {
-                orgTableBody.innerHTML = '';
-                document.getElementById('org-empty').classList.toggle('hidden', data.length > 0);
-                data.forEach(org => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td class="px-6 py-4 font-medium">${org.orgName || org.org_name}</td>
-                        <td class="px-6 py-4 text-sm text-gray-600">${org.userId || org.userid} / ${org.email}</td>
-                        <td class="px-6 py-4 text-center">
-                            <button onclick="approveOrg(${org.id}, '${org.org_name}')" class="bg-green-600 text-white px-3 py-1 rounded mr-2">승인</button>
-                            <button onclick="openModal('ORG_REJECT', ${org.id}, '${org.org_name}')" class="bg-red-600 text-white px-3 py-1 rounded">거절</button>
-                        </td>
-                    `;
-                    orgTableBody.appendChild(tr);
+        // 2-1. 기관 목록 조회
+        const fetchPendingOrgs = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/pending-organizations`, {
+                    headers: { 'Authorization': `Bearer ${adminToken}` } // 토큰 헤더 필수
                 });
-            };
+                const result = await res.json();
+                
+                // 데이터 위치 자동 보정 (result.data가 없으면 result 자체가 배열인지 확인)
+                const list = result.data || (Array.isArray(result) ? result : []);
+                renderOrgTable(list);
+            } catch (err) { console.error(err); }
+        };
 
-            const renderReportTable = (data) => {
-                reportTableBody.innerHTML = '';
-                document.getElementById('report-empty').classList.toggle('hidden', data.length > 0);
-                data.forEach(rpt => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td class="px-6 py-4">
-                            <div class="text-sm font-bold">[ID: ${rpt.board_id}] ${rpt.board_title}</div>
-                        </td>
-                        <td class="px-6 py-4 text-sm text-red-600 font-medium">${rpt.report_reason}</td>
-                        <td class="px-6 py-4 text-xs text-gray-500">
-                            <div>작성자: ${rpt.author_email}</div>
-                            <div>신고일: ${new Date(rpt.reported_at).toLocaleString()}</div>
-                        </td>
-                        <td class="px-6 py-4 text-center whitespace-nowrap">
-                            <button onclick="openModal('REPORT_DELETE', ${rpt.report_id}, '${rpt.board_title}', ${rpt.board_id})" class="bg-red-600 text-white px-2 py-1 rounded text-sm mr-1">글 삭제</button>
-                            <button onclick="openModal('REPORT_REJECT', ${rpt.report_id}, '${rpt.board_title}')" class="bg-gray-500 text-white px-2 py-1 rounded text-sm">기각</button>
-                        </td>
-                    `;
-                    reportTableBody.appendChild(tr);
+        // 2-2. 신고 목록 조회
+        const fetchReports = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/reports`, {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
                 });
-            };
+                const result = await res.json();
+                const list = result.data || (Array.isArray(result) ? result : []);
+                renderReportTable(list);
+            } catch (err) { console.error(err); }
+        };
 
-            // --- 4. 조치 실행 함수 (API 호출) ---
-            window.approveOrg = async (id, name) => {
-                if (!confirm(`'${name}' 가입을 승인하시겠습니까?`)) return;
+        // 2-3. 수정 요청 목록 조회
+        const loadEditRequests = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/org-edit-requests`, {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
+                const result = await res.json();
+                const list = result.data || (Array.isArray(result) ? result : []);
+                renderEditTable(list);
+            } catch (err) { console.error(err); }
+        };
+
+        // ----------------------------------------------------------------
+        // 3. 렌더링 (변수명 대소문자 자동 처리)
+        // ----------------------------------------------------------------
+        const renderOrgTable = (data) => {
+            orgTableBody.innerHTML = '';
+            document.getElementById('org-empty').classList.toggle('hidden', data.length > 0);
+            
+            data.forEach(org => {
+                const tr = document.createElement('tr');
+                // ★ [핵심 수정] orgName(대문자) 혹은 org_name(소문자) 둘 다 작동하도록 수정
+                const name = org.orgName || org.org_name || '이름 없음';
+                const uid = org.userId || org.userid || 'ID없음';
+                
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-medium">${name}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600">${uid} / ${org.email}</td>
+                    <td class="px-6 py-4 text-center">
+                        <button onclick="approveOrg(${org.id}, '${name}')" class="bg-green-600 text-white px-3 py-1 rounded mr-2">승인</button>
+                        <button onclick="openModal('ORG_REJECT', ${org.id}, '${name}')" class="bg-red-600 text-white px-3 py-1 rounded">거절</button>
+                    </td>
+                `;
+                orgTableBody.appendChild(tr);
+            });
+        };
+
+        const renderReportTable = (data) => {
+            reportTableBody.innerHTML = '';
+            document.getElementById('report-empty').classList.toggle('hidden', data.length > 0);
+            data.forEach(rpt => {
+                const tr = document.createElement('tr');
+                // 변수명 안전 처리
+                const bTitle = rpt.boardTitle || rpt.board_title || '제목 없음';
+                const bId = rpt.boardId || rpt.board_id;
+                const rReason = rpt.reportReason || rpt.report_reason;
+                const rId = rpt.reportId || rpt.report_id;
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4">
+                        <div class="text-sm font-bold">[ID: ${bId}] ${bTitle}</div>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-red-600 font-medium">${rReason}</td>
+                    <td class="px-6 py-4 text-xs text-gray-500">
+                        <div>작성자: ${rpt.authorEmail || rpt.author_email}</div>
+                        <div>신고일: ${new Date(rpt.reportedAt || rpt.reported_at).toLocaleString()}</div>
+                    </td>
+                    <td class="px-6 py-4 text-center whitespace-nowrap">
+                        <button onclick="openModal('REPORT_DELETE', ${rId}, '${bTitle}', ${bId})" class="bg-red-600 text-white px-2 py-1 rounded text-sm mr-1">글 삭제</button>
+                        <button onclick="openModal('REPORT_REJECT', ${rId}, '${bTitle}')" class="bg-gray-500 text-white px-2 py-1 rounded text-sm">기각</button>
+                    </td>
+                `;
+                reportTableBody.appendChild(tr);
+            });
+        };
+
+        const renderEditTable = (data) => {
+            editTableBody.innerHTML = '';
+            editEmpty.classList.toggle('hidden', data.length > 0);
+            data.forEach(req => {
+                const tr = document.createElement('tr');
+                // 변수명 안전 처리
+                const orgName = req.orgName || req.org_name || '이름 없음';
+                const newIntro = req.newIntroduction || req.new_introduction || '-';
+                const newEmail = req.newEmail || req.new_email || '-';
+                const newContact = req.newContactNumber || req.new_contact_number || '-';
+                const newSns = req.newSnsLink || req.new_sns_link || '-';
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-medium">${orgName}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600">
+                        <div class="space-y-1">
+                            <p><strong>소개:</strong> ${newIntro}</p>
+                            <p><strong>이메일:</strong> ${newEmail}</p>
+                            <p><strong>연락처:</strong> ${newContact}</p>
+                            <p><strong>SNS:</strong> ${newSns}</p>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-center whitespace-nowrap">
+                        <button onclick="approveEdit(${req.id})" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition mr-2">승인</button>
+                        <button onclick="openModal('EDIT_REJECT', ${req.id}, '${orgName}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">반려</button>
+                    </td>
+                `;
+                editTableBody.appendChild(tr);
+            });
+        };
+
+        // ----------------------------------------------------------------
+        // 4. 액션 함수 (window 객체에 등록해야 onclick에서 보임)
+        // ----------------------------------------------------------------
+        window.approveOrg = async (id, name) => {
+            if (!confirm(`'${name}' 가입을 승인하시겠습니까?`)) return;
+            try {
                 const res = await fetch(`${API_BASE_URL}/admin/approve-organization`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
                     body: JSON.stringify({ userId: id })
                 });
                 if (res.ok) { alert('승인 완료'); fetchPendingOrgs(); }
-            };
+                else { alert('오류 발생'); }
+            } catch(e) { console.error(e); }
+        };
 
-            // 단체 정보 수정 요청 로드 함수
-            const loadEditRequests = async () => {
-                try {
-                    const res = await fetch(`${API_BASE_URL}/admin/org-edit-requests`, {
-                        headers: { 'Authorization': `Bearer ${adminToken}` }
-                    });
-                    const result = await res.json();
-                    renderEditTable(result.data || []);
-                } catch (err) {
-                    console.error('수정 요청 로드 실패:', err);
-                }
-            };
-
-            // 단체 정보 수정 요청 렌더링
-            const renderEditTable = (data) => {
-                editTableBody.innerHTML = '';
-                editEmpty.classList.toggle('hidden', data.length > 0);
-                data.forEach(req => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td class="px-6 py-4 font-medium">${req.org_name}</td>
-                        <td class="px-6 py-4 text-sm text-gray-600">
-                            <div class="space-y-1">
-                                <p><strong>소개:</strong> ${req.new_introduction || '-'}</p>
-                                <p><strong>이메일:</strong> ${req.new_email || '-'}</p>
-                                <p><strong>연락처:</strong> ${req.new_contact_number || '-'}</p>
-                                <p><strong>SNS:</strong> ${req.new_sns_link || '-'}</p>
-                            </div>
-                        </td>
-                        <td class="px-6 py-4 text-center whitespace-nowrap">
-                            <button onclick="approveEdit(${req.id})" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition mr-2">승인</button>
-                            <button onclick="openModal('EDIT_REJECT', ${req.id}, '${req.org_name}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">반려</button>
-                        </td>
-                    `;
-                    editTableBody.appendChild(tr);
+        window.approveEdit = async (requestId) => {
+            if (!confirm('이 변경 사항을 승인하고 실제 프로필에 반영하시겠습니까?')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/approve-org-update`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}` 
+                    },
+                    body: JSON.stringify({ requestId })
                 });
-            };
-
-            // 수정 승인 실행 함수
-            window.approveEdit = async (requestId) => {
-                if (!confirm('이 변경 사항을 승인하고 실제 프로필에 반영하시겠습니까?')) return;
-                
-                try {
-                    const res = await fetch(`${API_BASE_URL}/admin/approve-org-update`, {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${adminToken}` 
-                        },
-                        body: JSON.stringify({ requestId })
-                    });
-                    const result = await res.json();
-                    
-                    if (res.ok) {
-                        alert('승인 및 프로필 반영이 완료되었습니다.');
-                        loadEditRequests(); 
-                    } else {
-                        alert(result.message);
-                    }
-                } catch (err) {
-                    alert('처리 중 오류가 발생했습니다.');
+                const result = await res.json();
+                if (res.ok) {
+                    alert('승인 및 프로필 반영이 완료되었습니다.');
+                    loadEditRequests(); 
+                } else {
+                    alert(result.message);
                 }
-            };
+            } catch (err) { alert('처리 중 오류가 발생했습니다.'); }
+        };
 
-            // 모달 열기
-            window.openModal = (mode, id, name, subId = null) => {
-                modalMode = mode;
-                activeId = id;
-                activeSubId = subId;
-                reasonInput.value = '';
-                reasonModal.classList.remove('hidden');
+        window.openModal = (mode, id, name, subId = null) => {
+            modalMode = mode;
+            activeId = id;
+            activeSubId = subId;
+            reasonInput.value = '';
+            reasonModal.classList.remove('hidden');
 
-                if (mode === 'ORG_REJECT') {
-                    modalTitle.textContent = '기관 가입 거절';
-                    modalDesc.textContent = `'${name}'의 가입 거절 사유를 입력하세요.`;
-                } else if (mode === 'REPORT_DELETE') {
-                    modalTitle.textContent = '신고 게시글 강제 삭제';
-                    modalDesc.textContent = `게시글 [${name}]을 삭제하시겠습니까? 작성자에게 전달될 사유를 입력하세요.`;
-                } else if (mode === 'REPORT_REJECT') {
-                    modalTitle.textContent = '신고 내역 기각';
-                    modalDesc.textContent = `게시글 [${name}]에 대한 신고를 기각하시겠습니까?`;
-                } else if (mode === 'EDIT_REJECT') { // 추가된 케이스
-                    modalTitle.textContent = '정보 수정 요청 반려';
-                    modalDesc.textContent = `'${name}'의 수정 요청을 반려하시겠습니까? 사유를 입력하세요.`;
-                }
-            };
+            if (mode === 'ORG_REJECT') {
+                modalTitle.textContent = '기관 가입 거절';
+                modalDesc.textContent = `'${name}'의 가입 거절 사유를 입력하세요.`;
+            } else if (mode === 'REPORT_DELETE') {
+                modalTitle.textContent = '신고 게시글 강제 삭제';
+                modalDesc.textContent = `게시글 [${name}]을 삭제하시겠습니까? 사유 입력.`;
+            } else if (mode === 'REPORT_REJECT') {
+                modalTitle.textContent = '신고 내역 기각';
+                modalDesc.textContent = `게시글 [${name}]에 대한 신고를 기각합니까?`;
+            } else if (mode === 'EDIT_REJECT') {
+                modalTitle.textContent = '정보 수정 요청 반려';
+                modalDesc.textContent = `'${name}'의 수정 요청을 반려하시겠습니까?`;
+            }
+        };
 
-            document.getElementById('modal-cancel-btn').addEventListener('click', () => reasonModal.classList.add('hidden'));
+        document.getElementById('modal-cancel-btn').addEventListener('click', () => reasonModal.classList.add('hidden'));
 
-            // 모달 확인 클릭 (통합 처리)
-            modalConfirmBtn.addEventListener('click', async () => {
-                const reason = reasonInput.value.trim();
-                if (!reason) return alert('사유를 입력해주세요.');
+        modalConfirmBtn.addEventListener('click', async () => {
+            const reason = reasonInput.value.trim();
+            if (!reason) return alert('사유를 입력해주세요.');
 
-                let endpoint = '';
-                let payload = {};
+            let endpoint = '';
+            let payload = {};
 
-                if (modalMode === 'ORG_REJECT') {
-                    endpoint = '/admin/reject-organization';
-                    payload = { userId: activeId, rejectionReason: reason };
-                } else if (modalMode === 'REPORT_DELETE') {
-                    endpoint = '/admin/reports/delete';
-                    payload = { reportId: activeId, boardId: activeSubId, adminReason: reason };
-                } else if (modalMode === 'REPORT_REJECT') {
-                    endpoint = '/admin/reports/reject';
-                    payload = { reportId: activeId, adminReason: reason };
-                } else if (modalMode === 'EDIT_REJECT') {
-                    endpoint = '/admin/reject-org-update';
-                    payload = { requestId: activeId, rejectReason: reason };
-                }
+            if (modalMode === 'ORG_REJECT') {
+                endpoint = '/admin/reject-organization';
+                payload = { userId: activeId, rejectionReason: reason };
+            } else if (modalMode === 'REPORT_DELETE') {
+                endpoint = '/admin/reports/delete';
+                payload = { reportId: activeId, boardId: activeSubId, adminReason: reason };
+            } else if (modalMode === 'REPORT_REJECT') {
+                endpoint = '/admin/reports/reject';
+                payload = { reportId: activeId, adminReason: reason };
+            } else if (modalMode === 'EDIT_REJECT') {
+                endpoint = '/admin/reject-org-update';
+                payload = { requestId: activeId, rejectReason: reason };
+            }
 
+            try {
                 const res = await fetch(`${API_BASE_URL}${endpoint}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
@@ -390,10 +421,11 @@
                     fetchAllData();
                 } else {
                     const err = await res.json();
-                    alert(err.message);
+                    alert(err.message || '오류 발생');
                 }
-            });
+            } catch(e) { console.error(e); alert('통신 오류'); }
         });
-    </script>
+    });
+</script>
 </body>
 </html>
