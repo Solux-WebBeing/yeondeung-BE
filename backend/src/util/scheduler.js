@@ -49,7 +49,7 @@ const startMailingTask = () => {
             const now = new Date();
             const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][now.getDay()];
             // 9시간을 빼자
-            const adjustedHour = (now.getHours() + 24 - 9) % 24;
+            const adjustedHour = (now.getHours() + 9) % 24;
             const currentTime = `${String(adjustedHour).padStart(2, '0')}:00:00`;
 
             console.log(`메일러가 활성화되었습니다. (${now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}) - 조회 시간: ${currentTime}`);
