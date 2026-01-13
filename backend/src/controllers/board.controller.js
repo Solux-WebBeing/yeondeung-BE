@@ -401,13 +401,22 @@ exports.reportPost = async (req, res) => {
     const connection = await pool.getConnection();
     try {
         const reporterId = req.user.id; 
-        const { id } = req.params;
+        const { id } = req.params; // 신고할 게시글 ID
         const { reason } = req.body;
 
         if (!reason || reason.trim().length < 10) {
             return res.status(400).json({ success: false, message: '신고 사유를 10자 이상 입력해 주세요.' });
         }
 
+        // 1. 게시글이 실제로 존재하는지 먼저 확인
+        const [boardExists] = await connection.query('SELECT id FROM boards WHERE id = ?', [id]);
+        
+        if (boardExists.length === 0) {
+            // 게시글이 없으면 DB 에러를 내지 않고 404 응답을 보냄
+            return res.status(404).json({ success: false, message: '존재하지 않거나 삭제된 게시글은 신고할 수 없습니다.' });
+        }
+
+        // 2. 게시글이 존재할 때만 신고 데이터 삽입
         const sql = `INSERT INTO reports (reporter_id, board_id, reason, status) VALUES (?, ?, ?, 'RECEIVED')`;
         await connection.query(sql, [reporterId, id, reason]);
 
