@@ -149,10 +149,13 @@ exports.getGlobalSolidarity = async (type, userId = null) => {
     }
 
     let query = (type === 'imminent') 
-        ? `SELECT * FROM boards WHERE end_date > NOW() AND DATE(end_date) <= DATE_ADD(CURDATE(), INTERVAL 1 DAY) ORDER BY end_date ASC`
+        ? `SELECT * FROM boards 
+        WHERE end_date > NOW() 
+        AND DATE(end_date) = CURDATE() 
+        ORDER BY end_date ASC`
         : `SELECT b.*, COUNT(c.id) AS recent_cheer_count FROM boards b 
-           LEFT JOIN cheers c ON b.id = c.board_id AND c.created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY) 
-           WHERE b.end_date > NOW() GROUP BY b.id ORDER BY recent_cheer_count DESC, b.created_at DESC LIMIT 6`;
+        LEFT JOIN cheers c ON b.id = c.board_id AND c.created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY) 
+        WHERE b.end_date > NOW() GROUP BY b.id ORDER BY recent_cheer_count DESC, b.created_at DESC LIMIT 6`;
 
     let [rows] = await db.execute(query);
 
