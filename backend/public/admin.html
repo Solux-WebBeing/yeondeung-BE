@@ -142,7 +142,7 @@
         let activeSubId = null; 
 
         // ----------------------------------------------------------------
-        // 1. 로그인 (토큰 자동 찾기 기능 추가)
+        // 1. 로그인 (모든 변수명 다 뒤져서 토큰 찾기)
         // ----------------------------------------------------------------
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -155,15 +155,37 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userid, password })
                 });
+                
                 const result = await res.json();
                 
-                if (!res.ok) throw new Error(result.message || '로그인 실패');
+                if (!res.ok) {
+                    throw new Error(result.message || '로그인 실패');
+                }
 
-                // ★ [핵심 수정] 토큰이 result.data.token에 있든 result.token에 있든 알아서 찾음
-                const token = (result.data && result.data.token) ? result.data.token : 
-                              (result.token ? result.token : null);
+                // ★★★ [수정된 부분] 가능한 모든 토큰 경로를 다 체크합니다 ★★★
+                let token = null;
 
+                // 1. data 안에 있는 경우
+                if (result.data) {
+                    if (result.data.token) token = result.data.token;
+                    else if (result.data.accessToken) token = result.data.accessToken;
+                }
+                
+                // 2. 바깥에 바로 있는 경우
                 if (!token) {
+                    if (result.token) token = result.token;
+                    else if (result.accessToken) token = result.accessToken;
+                }
+
+                // 3. body 안에 있는 경우 (가끔 이렇게 옴)
+                if (!token && result.body) {
+                    if (result.body.token) token = result.body.token;
+                    else if (result.body.accessToken) token = result.body.accessToken;
+                }
+
+                // 토큰을 못 찾았으면 서버가 보내준 전체 데이터를 경고창으로 띄워서 확인 (최후의 수단)
+                if (!token) {
+                    alert("⚠️ 토큰을 못 찾았습니다.\n서버 응답을 확인해주세요:\n" + JSON.stringify(result, null, 2));
                     throw new Error('서버 응답에서 토큰을 찾을 수 없습니다.');
                 }
 
