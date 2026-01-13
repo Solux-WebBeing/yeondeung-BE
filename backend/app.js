@@ -1,6 +1,11 @@
 // 1. dotenv 설정
 require('dotenv').config();
 
+// 서버 시작 시 시간 확인용 로그
+const now = new Date();
+console.log(`현재 서버 시간(toString): ${now.toString()}`);
+console.log(`현재 서버 시간(LocalString): ${now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
+
 // 2. 필요한 모듈들
 const express = require('express');
 const path = require('path');
