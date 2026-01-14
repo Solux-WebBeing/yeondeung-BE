@@ -127,8 +127,9 @@ const startMailingTask = () => {
 
                             if (posts.length > 0) {
                                 try {
-                                    // 랜덤으로 1개만 선택
-                                    const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                                    const maxCheerCount = Math.max(...posts.map(p => p.cheer_count));
+                                    const topPosts = posts.filter(p => p.cheer_count === maxCheerCount);
+                                    const randomPost = topPosts[Math.floor(Math.random() * topPosts.length)];
                                     await emailService.sendPopularPostEmail(user.email, user.nickname, [randomPost]);
                                     popularMailCount++;
                                 } catch (error) {
