@@ -13,10 +13,15 @@ const toEsDate = (dateStr) => {
 /**
  * [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수
  */
+/**
+ * [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수
+ */
 async function enrichDataWithMySQL(results, currentUserId = null) {
     if (!results || results.length === 0) return [];
     
     const boardIds = results.map(post => post.id);
+    // user_id만 뽑아서 중복 제거
+    const userIds = [...new Set(results.map(post => post.user_id).filter(id => id))];
 
     // 1. 전체 응원수 조회
     const [totalCheers] = await pool.query(
@@ -43,11 +48,39 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     const imageMap = {};
     boardImages.forEach(img => { if (!imageMap[img.board_id]) imageMap[img.board_id] = img.image_url; });
 
+    // ---------------------------------------------------------
+    // 4. [수정됨] 작성자(Users) 정보 조회 (user_type 컬럼 사용)
+    // ---------------------------------------------------------
+    const userMap = {};
+    if (userIds.length > 0) {
+        // user_type 컬럼을 가져옵니다.
+        const [users] = await pool.query(
+            `SELECT id, user_type FROM users WHERE id IN (?)`, 
+            [userIds]
+        );
+        
+        users.forEach(u => {
+            // DB 값(user_type)에 따라 프론트엔드용 값(individual/organization)으로 변환
+            let typeStr = "기타";
+            
+            // 만약 DB에 0, 1 같은 숫자로 저장되어 있다면:
+            if (u.user_type === 0) typeStr = "individual";
+            else if (u.user_type === 1) typeStr = "organization";
+            // 만약 DB에 문자열("individual", "organization")로 저장되어 있다면:
+            else if (u.user_type === "individual") typeStr = "individual";
+            else if (u.user_type === "organization") typeStr = "organization";
+            // 그 외 값이면 그대로 사용 (안전장치)
+            else if (u.user_type) typeStr = u.user_type; 
+
+            userMap[u.id] = typeStr;
+        });
+    }
+    // ---------------------------------------------------------
+
     const today = new Date();
     const todayCompare = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
 
     return results.map(post => {
-        // [로직] 게시글 자체의 topics에서 랜덤하게 하나 선택
         const currentTopics = Array.isArray(post.topics) 
             ? post.topics 
             : (post.topics ? post.topics.split(',').map(t => t.trim()) : []);
@@ -60,7 +93,6 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 
         const totalCount = cheerMap[post.id] || 0;
         
-        // [로직] D-Day 및 오늘 종료 여부 판별
         let dDay = "상시";
         let isTodayEnd = false;
 
@@ -81,6 +113,9 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 
         const format = (d, t) => d ? `${new Date(d).toISOString().split('T')[0].replace(/-/g, '. ')}${t ? ' ' + d.substring(11, 16) : ''}` : "";
 
+        // userMap에서 먼저 찾고, 없으면 기존 post 데이터, 그래도 없으면 "기타"
+        const finalHostType = post.host_type || userMap[post.user_id] || "기타";
+
         return {
             id: post.id,
             title: post.title,
@@ -91,8 +126,12 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             cheerCount: totalCount,
             is_cheered: userCheerSet.has(post.id), 
             is_author: currentUserId === post.user_id, 
+            
+            // [결과] 최종적으로 결정된 host_type 사용
+            host_type: finalHostType,
+            
             dDay,
-            isTodayEnd, // "오늘 종료" 태그용
+            isTodayEnd, 
             interestMessage: `${topicName} 의제에 관심이 있는 ${totalCount}명이 연대합니다!`
         };
     });

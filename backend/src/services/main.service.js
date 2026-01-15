@@ -6,10 +6,16 @@ const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://el
 /**
  * [공통] 데이터에 cheerCount, dDay, Thumbnail, isCheered 등을 병합하는 함수
  */
+/**
+ * [공통] 데이터에 cheerCount, dDay, Thumbnail, isCheered, host_type 등을 병합하는 함수
+ */
 const enrichData = async (items, currentUserId = null) => {
     if (!items || items.length === 0) return [];
 
     const boardIds = items.map(item => item.id);
+    // [추가] 작성자 ID 추출 (중복 제거)
+    const userIds = [...new Set(items.map(item => item.user_id).filter(id => id))];
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -36,9 +42,31 @@ const enrichData = async (items, currentUserId = null) => {
     const imageMap = {};
     images.forEach(img => { if (!imageMap[img.board_id]) imageMap[img.board_id] = img.image_url; });
 
+    // ---------------------------------------------------------
+    // 4. [신규 추가] 작성자(Users) 정보 조회 (host_type 해결)
+    // ---------------------------------------------------------
+    const userMap = {};
+    if (userIds.length > 0) {
+        // user_type 컬럼 조회
+        const [users] = await db.execute(
+            `SELECT id, user_type FROM users WHERE id IN (${userIds.join(',')})`
+        );
+        
+        users.forEach(u => {
+            let typeStr = "기타";
+            // 0, 1 등 숫자로 저장된 경우와 문자열인 경우 모두 대응
+            if (u.user_type === 0 || u.user_type === "individual") typeStr = "individual";
+            else if (u.user_type === 1 || u.user_type === "organization") typeStr = "organization";
+            else if (u.user_type) typeStr = u.user_type; 
+
+            userMap[u.id] = typeStr;
+        });
+    }
+    // ---------------------------------------------------------
+
     const DEFAULT_THUMBNAIL = "https://your-domain.com/assets/default-thumbnail.png";
 
-    // 4. UI 맞춤형 포맷팅
+    // 5. UI 맞춤형 포맷팅
     return items.map(item => {
         const count = cheerMap[item.id] || 0;
 
@@ -68,12 +96,14 @@ const enrichData = async (items, currentUserId = null) => {
             return isNaN(d.getTime()) ? "" : `${d.getFullYear()}. ${String(d.getMonth() + 1).padStart(2, '0')}. ${String(d.getDate()).padStart(2, '0')}`;
         };
 
+        // DB에서 조회한 userMap 값 사용 (없으면 기존 값, 그것도 없으면 "기타")
+        const finalHostType = userMap[item.user_id] || item.host_type || "기타";
 
         return {
             id: item.id,
             title: item.title,
             thumbnail: imageMap[item.id] || DEFAULT_THUMBNAIL,
-            topics: topicArray, // 가공된 배열 사용
+            topics: topicArray, 
             location: item.region ? `${item.region}${item.district ? ` > ${item.district}` : ""}` : "온라인/전국",
             dateDisplay: (item.start_date && item.end_date) 
                 ? `${formatDate(item.start_date)} ~ ${formatDate(item.end_date)}`
@@ -81,9 +111,12 @@ const enrichData = async (items, currentUserId = null) => {
             cheerCount: count,
             isCheered: myCheerSet.has(item.id),
             isAuthor: currentUserId === item.user_id,
+            
+            // [수정] 조회한 작성자 타입 적용
+            host_type: finalHostType,
+            
             dDay,
             isTodayEnd,
-            // 수정된 랜덤 토픽 적용
             interestMessage: `${displayTopic} 의제에 관심이 있는 ${count}명이 연대합니다!`
         };
     });
