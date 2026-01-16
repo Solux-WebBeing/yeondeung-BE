@@ -108,6 +108,8 @@ const enrichData = async (items, currentUserId = null) => {
             dateDisplay: (item.start_date && item.end_date) 
                 ? `${formatDate(item.start_date)} ~ ${formatDate(item.end_date)}`
                 : (item.start_date ? formatDate(item.start_date) : "상시 진행"),
+            start_date: item.start_date,
+            end_date: item.end_date,
             cheerCount: count,
             isCheered: myCheerSet.has(item.id),
             isAuthor: currentUserId === item.user_id,
