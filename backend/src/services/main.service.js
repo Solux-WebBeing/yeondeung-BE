@@ -105,6 +105,8 @@ const enrichData = async (items, currentUserId = null) => {
             thumbnail: imageMap[item.id] || DEFAULT_THUMBNAIL,
             topics: topicArray, 
             location: item.region ? `${item.region}${item.district ? ` > ${item.district}` : ""}` : "온라인/전국",
+            region: item.region || "온라인",
+            district: item.district || "",
             dateDisplay: (item.start_date && item.end_date) 
                 ? `${formatDate(item.start_date)} ~ ${formatDate(item.end_date)}`
                 : (item.start_date ? formatDate(item.start_date) : "상시 진행"),

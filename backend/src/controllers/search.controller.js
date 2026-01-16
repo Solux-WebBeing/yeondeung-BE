@@ -122,6 +122,8 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             thumbnail: imageMap[post.id] || "none",
             topics: currentTopics,
             location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
+            region: post.region || "온라인",
+            district: post.district || "",
             dateDisplay: (post.start_date && post.end_date) ? `${format(post.start_date, post.is_start_time_set)} ~ ${format(post.end_date, post.is_end_time_set)}` : "상시 진행",
             start_date: post.start_date,
             end_date: post.end_date,
