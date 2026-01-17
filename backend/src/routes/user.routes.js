@@ -48,7 +48,7 @@ const { verifyToken, verifyTokenOptional } = require('../middlewares/auth.middle
  *               nickname:
  *                 type: string
  *                 description: 닉네임
- *               email_consent:
+ *               mailing_consent:
  *                 type: boolean
  *                 description: '이메일 수신 동의 여부 (기본값: false)'
  *     responses:
