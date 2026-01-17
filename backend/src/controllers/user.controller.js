@@ -458,14 +458,15 @@ exports.getMyProfile = async (req, res) => {
     
     if (user_type === 'INDIVIDUAL') {
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, u.role, ip.nickname, ip.mailing_consent 
+        SELECT 
+          u.id, u.userid, u.email, u.user_type, u.role, ip.nickname, ip.mailing_consent, ip.interests,ip.mailing_days, ip.mailing_time 
         FROM users u
         LEFT JOIN individual_profiles ip ON u.id = ip.user_id
         WHERE u.id = ?
       `;
     } else if (user_type === 'ORGANIZATION') {
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, u.role, op.org_name, op.sns_link, op.contact_number, op.address
+        SELECT u.id, u.userid, u.email, u.user_type, u.role, op.org_name, op.sns_link, op.contact_number, op.address, op.introduction
         FROM users u
         LEFT JOIN organization_profiles op ON u.id = op.user_id
         WHERE u.id = ?
