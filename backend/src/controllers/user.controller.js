@@ -655,7 +655,6 @@ exports.setupIndividual = async (req, res) => {
     const { interests, mailing_consent, mailing_days, mailing_time } = req.body;
     let connection;
 
-    // DB 마스터 데이터와 일치하도록 수정 (/, / 포함)
     const ALLOWED_INTERESTS = [
         '여성', '청소년', '노동자', '성소수자', '농민', '장애인', 
         '교육', '범죄/사법', '복지', '의료', '환경', '인권', 
@@ -676,9 +675,17 @@ exports.setupIndividual = async (req, res) => {
         let dbTime = null;
 
         if (mailing_consent === true) {
+            // 1. 배열 여부 및 길이 검증
             if (!Array.isArray(mailing_days) || mailing_days.length !== 2) {
                 return res.status(400).json({ success: false, message: '메일링 요일 2개를 선택해야 합니다.' });
             }
+          
+            // 2. 요일 값 유효성 검사 ("월요일" 등 방지)
+            const invalidDay = mailing_days.find(day => !ALLOWED_DAYS.includes(day));
+            if (invalidDay) {
+                return res.status(400).json({ success: false, message: `유효하지 않은 요일 형식입니다: ${invalidDay}` });
+            }
+
             const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
             if (!mailing_time || !timeRegex.test(mailing_time)) {
                 return res.status(400).json({ success: false, message: '시간 형식이 올바르지 않습니다.' });
@@ -695,12 +702,10 @@ exports.setupIndividual = async (req, res) => {
         connection = await pool.getConnection();
         await connection.beginTransaction();
 
-        // 1. 의제 ID 매핑 정보 로드
         const [topicRows] = await connection.query('SELECT id, name FROM topics');
         const topicMap = {};
         topicRows.forEach(row => topicMap[row.name] = row.id);
 
-        // 2. 프로필 업데이트 (기존 JSON 필드 유지)
         const interestsJson = JSON.stringify(interests);
         await connection.query(`
             UPDATE individual_profiles 
@@ -708,7 +713,6 @@ exports.setupIndividual = async (req, res) => {
             WHERE user_id = ?
         `, [interestsJson, mailing_consent, daysJson, dbTime, id]);
 
-        // 3. [정규화] user_interests 매핑 갱신
         await connection.query('DELETE FROM user_interests WHERE user_id = ?', [id]);
         const interestValues = interests
             .map(name => topicMap[name])
@@ -719,7 +723,6 @@ exports.setupIndividual = async (req, res) => {
             await connection.query('INSERT INTO user_interests (user_id, topic_id) VALUES ?', [interestValues]);
         }
 
-        // 4. 첫 로그인 상태 변경
         await connection.query('UPDATE users SET is_first_login = true WHERE id = ?', [id]);
 
         await connection.commit();
@@ -790,11 +793,23 @@ exports.updateIndivProfile = async (req, res) => {
 exports.updateMailing = async (req, res) => {
   const { id } = req.user;
   const { mailing_consent, mailing_days, mailing_time } = req.body;
+  const ALLOWED_DAYS = ['월', '화', '수', '목', '금', '토', '일']; // [추가]
 
   try {
     let sql, params;
     if (mailing_consent) {
-      // 시간 형식 변환 로직 (AM/PM -> HH:mm:ss)
+      // 1. 요일 배열 및 길이 검증
+      if (!Array.isArray(mailing_days) || mailing_days.length !== 2) {
+          return fail(res, '메일링 요일 2개를 선택해야 합니다.', 400);
+      }
+
+      // 2. 요일 값 유효성 검사
+      const invalidDay = mailing_days.find(day => !ALLOWED_DAYS.includes(day));
+      if (invalidDay) {
+          return fail(res, `유효하지 않은 요일 형식입니다: ${invalidDay}`, 400);
+      }
+
+      // 3. 시간 형식 변환 및 검증
       const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
       if (!mailing_time || !timeRegex.test(mailing_time)) {
           return fail(res, '시간 형식이 올바르지 않습니다.', 400);
@@ -806,11 +821,9 @@ exports.updateMailing = async (req, res) => {
       else if (amPm === 'AM' && hour === 12) hour = 0;
       const dbTime = `${String(hour).padStart(2, '0')}:00:00`;
 
-      // 수신 켜기 및 수정
       sql = 'UPDATE individual_profiles SET mailing_consent = true, mailing_days = ?, mailing_time = ? WHERE user_id = ?';
       params = [JSON.stringify(mailing_days), dbTime, id];
     } else {
-      // 수신 끄기 (초기화)
       sql = 'UPDATE individual_profiles SET mailing_consent = false, mailing_days = NULL, mailing_time = NULL WHERE user_id = ?';
       params = [id];
     }
