@@ -465,8 +465,11 @@ exports.getMyProfile = async (req, res) => {
         WHERE u.id = ?
       `;
     } else if (user_type === 'ORGANIZATION') {
+      // 수정 검토 중 상태 확인을 위한 서브쿼리 추가
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, u.role, op.org_name, op.sns_link, op.contact_number, op.address, op.introduction
+        SELECT 
+          u.id, u.userid, u.email, u.user_type, u.role, op.org_name, op.sns_link, op.contact_number, op.address, op.introduction,
+          IF(EXISTS(SELECT 1 FROM organization_edit_requests WHERE user_id = u.id AND status = 'PENDING'), true, false) as is_reviewing
         FROM users u
         LEFT JOIN organization_profiles op ON u.id = op.user_id
         WHERE u.id = ?
@@ -629,21 +632,34 @@ exports.requestOrgUpdate = async (req, res) => {
 exports.getOrgActivities = async (req, res) => {
   const { id } = req.user;
   const page = parseInt(req.query.page) || 1;
-  const limit = 4; // 한 페이지 당 최대 4개
+  const limit = 4;
   const offset = (page - 1) * limit;
 
-  try {
-    const [rows] = await pool.query(
-      'SELECT id, title, created_at FROM boards WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [id, limit, offset]
-    );
+  try { // 날짜, 지역, 태그, 응원 수 필드 추가
+    const sql = `
+      SELECT 
+        b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
+        (SELECT COUNT(*) FROM cheers WHERE board_id = b.id) as cheer_count
+      FROM boards b
+      WHERE b.user_id = ? 
+      ORDER BY b.created_at DESC 
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await pool.query(sql, [id, limit, offset]);
     
-    if (rows.length === 0 && page === 1) {
+    // topics 문자열을 배열로 변환
+    const posts = rows.map(post => ({
+      ...post,
+      topics: post.topics ? post.topics.split(',').map(t => t.trim()) : []
+    }));
+
+    if (posts.length === 0 && page === 1) {
       return success(res, '아직 등록한 연대 활동이 없어요.', { posts: [] });
     }
 
-    return success(res, '활동 조회 성공', { posts: rows });
+    return success(res, '활동 조회 성공', { posts });
   } catch (error) {
+    console.error('Get Org Activities Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
   }
 };
@@ -838,17 +854,36 @@ exports.updateMailing = async (req, res) => {
 };
 
 // 개인 활동 조회
+// 날짜, 지역, 태그, 응원 수 필드 추가
 exports.getIndividualActivities = async (req, res) => {
   const { id } = req.user;
   try {
-    const [posts] = await pool.query(
-      'SELECT id, title, created_at FROM boards WHERE user_id = ? ORDER BY created_at DESC LIMIT 4', [id]
-    );
+    const postSql = `
+      SELECT 
+        b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
+        (SELECT COUNT(*) FROM cheers WHERE board_id = b.id) as cheer_count
+      FROM boards b 
+      WHERE b.user_id = ? 
+      ORDER BY b.created_at DESC 
+      LIMIT 4
+    `;
+    const [rows] = await pool.query(postSql, [id]);
+    
+    const posts = rows.map(post => ({
+      ...post,
+      topics: post.topics ? post.topics.split(',').map(t => t.trim()) : []
+    }));
+
     const [cheers] = await pool.query(
       'SELECT COUNT(*) as count FROM cheers WHERE user_id = ?', [id]
     );
-    return success(res, '활동 조회 성공', { written_posts: posts, cheer_count: cheers[0].count });
+
+    return success(res, '활동 조회 성공', { 
+      written_posts: posts, 
+      cheer_count: cheers[0].count 
+    });
   } catch (error) {
+    console.error('Get Individual Activities Error:', error);
     return fail(res, '서버 에러', 500);
   }
 };
@@ -879,7 +914,8 @@ exports.getCheeredActivitiesForCalendar = async (req, res) => {
      */
     const sql = `
       SELECT 
-        b.id, 
+        b.id as board_id, 
+        c.created_at as cheered_at,
         b.participation_type, 
         b.title, 
         b.topics, 
@@ -904,11 +940,14 @@ exports.getCheeredActivitiesForCalendar = async (req, res) => {
 
     const [activities] = await connection.query(sql, [id, targetMonth, targetMonth]);
 
-    if (activities.length === 0) {
-      return success(res, { activities: [] }, '이 날짜에는 응원한 활동이 없습니다.');
-    }
+    // topics 문자열을 배열로 변환
+    const formattedActivities = activities.map(act => ({
+      ...act,
+      topics: act.topics ? act.topics.split(',').map(t => t.trim()) : []
+    }));
 
-    return success(res, { activities }, '응원 활동 달력 조회 성공');
+    // 기존 success(res, message, data) 구조에 맞춰 data 배열에 담기도록 수정
+    return success(res, '응원 활동 달력 조회 성공', formattedActivities);
   } catch (error) {
     console.error('Calendar Fetch Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
