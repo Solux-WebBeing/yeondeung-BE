@@ -270,4 +270,65 @@ router.post('/approve-org-update', auth, isAdmin, adminController.approveOrgEdit
  */
 router.post('/reject-org-update', auth, isAdmin, adminController.rejectOrgEdit);
 
+/**
+ * @swagger
+ * /api/admin/events/unverified:
+ *   get:
+ *     summary: "(관리자) 미인증 집회/행사 목록 조회"
+ *     description: "참여 유형이 집회(RALLY) 또는 행사(EVENT)이면서 아직 인증되지 않은 게시글 목록을 조회합니다."
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: "조회 성공"
+ */
+router.get(
+  '/events/unverified',
+  auth,
+  isAdmin,
+  adminController.getUnverifiedEvents
+);
+
+/**
+ * @swagger
+ * /api/admin/events/verify:
+ *   post:
+ *     summary: "(관리자) 집회/행사 게시글 인증 처리"
+ *     description: "게시글의 링크 및 내용을 확인한 뒤 인증 여부(isVerified)를 설정합니다. true 설정 시 작성자에게 알림이 발송됩니다."
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - boardId
+ *               - isVerified
+ *             properties:
+ *               boardId:
+ *                 type: integer
+ *                 description: "인증 처리할 게시글 ID"
+ *               isVerified:
+ *                 type: boolean
+ *                 description: "true: 인증 승인, false: 미인증(취소)"
+ *     responses:
+ *       200:
+ *         description: "인증 상태 변경 성공"
+ *       400:
+ *         description: "필수 파라미터 누락"
+ *       404:
+ *         description: "게시글을 찾을 수 없음"
+ */
+router.post(
+  '/events/verify',
+  auth,
+  isAdmin,
+  adminController.verifyEventPost
+);
+
+
 module.exports = router;
