@@ -431,3 +431,108 @@ exports.rejectOrgEdit = async (req, res) => {
       if (connection) connection.release();
   }
 };
+
+/**
+ * 10. (관리자) 링크 인증이 필요한 집회/행사 게시글 목록 조회
+ * - participation_type이 'RALLY(집회)' 또는 'EVENT(행사)'인 게시글 중
+ * - 아직 인증되지 않은(is_verified = 0) 게시글을 조회합니다.
+ */
+/**
+ * 10. (관리자) 링크 인증이 필요한 집회/행사 게시글 목록 조회
+ * - participation_type이 '집회' 또는 '행사'인 게시글 중
+ * - 아직 인증되지 않은(is_verified = 0) 게시글을 조회합니다.
+ */
+exports.getUnverifiedEvents = async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+
+        // [수정] u.nickname 컬럼 제거 (테이블에 없으므로 에러 발생함)
+        const sql = `
+            SELECT 
+                b.id AS board_id,
+                b.title,
+                b.participation_type,
+                b.link, 
+                b.created_at,
+                IFNULL(u.email, '탈퇴/알수없음') AS email
+            FROM boards b
+            LEFT JOIN users u ON b.user_id = u.id   
+            WHERE b.participation_type IN ('집회', '행사') 
+              AND (b.is_verified IS NULL OR b.is_verified = 0)
+            ORDER BY b.created_at ASC
+        `;
+
+        const [rows] = await connection.query(sql);
+        return success(res, '인증 대기 중인 집회/행사 목록 조회 성공', rows);
+
+    } catch (error) {
+        console.error('Admin Get Unverified Events Error:', error);
+        return fail(res, '서버 에러가 발생했습니다.', 500);
+    } finally {
+        if (connection) connection.release();
+    }
+};
+
+/**
+ * 11. (관리자) 집회/행사 게시글 링크 인증 처리 (is_verified 변경)
+ * - 관리자가 내용을 확인 후 true(인증됨) 또는 false(미인증)로 상태를 변경합니다.
+ * - 인증(true) 처리 시 사용자에게 시스템 알림을 발송합니다.
+ */
+exports.verifyEventPost = async (req, res) => {
+    const { boardId, isVerified } = req.body; // isVerified: boolean (true or false)
+    let connection;
+
+    if (!boardId || typeof isVerified === 'undefined') {
+        return fail(res, '게시글 ID와 인증 상태값(true/false)이 필요합니다.', 400);
+    }
+
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        // 1. 게시글 존재 확인 및 작성자 ID 조회 (알림 발송용)
+        const [postRows] = await connection.query(
+            'SELECT user_id, title, participation_type FROM boards WHERE id = ?', 
+            [boardId]
+        );
+
+        if (postRows.length === 0) {
+            await connection.rollback();
+            return fail(res, '해당 게시글을 찾을 수 없습니다.', 404);
+        }
+
+        const post = postRows[0];
+        const typeName = post.participation_type === 'RALLY' ? '집회' : '행사';
+
+        // 2. is_verified 상태 업데이트
+        // (MySQL boolean은 TINYINT(1)로 처리되므로 true->1, false->0 자동 변환되거나 명시적 변환)
+        const updateSql = 'UPDATE boards SET is_verified = ? WHERE id = ?';
+        await connection.query(updateSql, [isVerified ? 1 : 0, boardId]);
+
+        // 3. 인증 승인(true)인 경우에만 사용자에게 알림 발송
+        if (isVerified) {
+            await notificationUtil.sendSystemNotification(
+                connection,
+                post.user_id,
+                `등록하신 [${typeName}] 게시글의 링크가 관리자에 의해 인증되었습니다.`,
+                `게시글 제목: ${post.title}`
+            );
+        }
+
+        await connection.commit();
+        
+        const msg = isVerified 
+            ? '게시글이 인증 처리되었습니다.' 
+            : '게시글 인증이 취소(미인증) 처리되었습니다.';
+            
+        return success(res, msg);
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Admin Verify Event Error:', error);
+        return fail(res, '인증 처리 중 서버 에러가 발생했습니다.', 500);
+    } finally {
+        if (connection) connection.release();
+    }
+};

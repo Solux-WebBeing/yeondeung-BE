@@ -81,6 +81,24 @@
             </div>
         </div>
 
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-2xl font-semibold mb-6">📢 집회/행사 링크 인증 대기</h2>
+            <div id="event-table-container" class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">유형 / 제목</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">링크 확인</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">작성자 / 등록일</th>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="event-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+                <div id="event-empty" class="hidden text-center py-6 text-gray-500">인증 대기 중인 게시글이 없습니다.</div>
+            </div>
+        </div>
+
         <div class="bg-white p-6 rounded-lg shadow-md">
             <h2 class="text-2xl font-semibold mb-6">🚨 신고 게시글 관리</h2>
             <div id="report-table-container" class="overflow-x-auto">
@@ -124,10 +142,12 @@
         // DOM Elements
         const loginView = document.getElementById('login-view');
         const dashboardView = document.getElementById('dashboard-view');
+        
         const orgTableBody = document.getElementById('org-table-body');
-        const reportTableBody = document.getElementById('report-table-body');
         const editTableBody = document.getElementById('edit-table-body');
-        const editEmpty = document.getElementById('edit-empty');
+        const eventTableBody = document.getElementById('event-table-body'); // [NEW]
+        const reportTableBody = document.getElementById('report-table-body');
+        
         const messageBox = document.getElementById('message-box');
         
         // Modal Elements
@@ -142,7 +162,7 @@
         let activeSubId = null; 
 
         // ----------------------------------------------------------------
-        // 1. 로그인 (모든 변수명 다 뒤져서 토큰 찾기)
+        // 1. 로그인
         // ----------------------------------------------------------------
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -162,36 +182,29 @@
                     throw new Error(result.message || '로그인 실패');
                 }
 
-                // ★★★ [수정된 부분] 가능한 모든 토큰 경로를 다 체크합니다 ★★★
+                // 토큰 찾기 로직
                 let token = null;
-
-                // 1. data 안에 있는 경우
                 if (result.data) {
                     if (result.data.token) token = result.data.token;
                     else if (result.data.accessToken) token = result.data.accessToken;
                 }
-                
-                // 2. 바깥에 바로 있는 경우
                 if (!token) {
                     if (result.token) token = result.token;
                     else if (result.accessToken) token = result.accessToken;
                 }
-
-                // 3. body 안에 있는 경우 (가끔 이렇게 옴)
                 if (!token && result.body) {
                     if (result.body.token) token = result.body.token;
                     else if (result.body.accessToken) token = result.body.accessToken;
                 }
 
-                // 토큰을 못 찾았으면 서버가 보내준 전체 데이터를 경고창으로 띄워서 확인 (최후의 수단)
                 if (!token) {
                     alert("⚠️ 토큰을 못 찾았습니다.\n서버 응답을 확인해주세요:\n" + JSON.stringify(result, null, 2));
                     throw new Error('서버 응답에서 토큰을 찾을 수 없습니다.');
                 }
 
-                adminToken = token; // 전역 변수에 저장
+                adminToken = token; 
 
-                // 화면 텍스트 변경
+                // 화면 전환
                 const tokenDisplay = document.getElementById('token-display');
                 if(tokenDisplay) {
                     tokenDisplay.textContent = `관리자 접속 완료 (Token: ${adminToken.substring(0, 10)}...)`;
@@ -219,8 +232,9 @@
         // ----------------------------------------------------------------
         const fetchAllData = () => {
             fetchPendingOrgs();
-            fetchReports();
+            fetchUnverifiedEvents(); // [NEW] 새로 추가된 조회 함수
             loadEditRequests();
+            fetchReports();
         };
 
         document.getElementById('fetch-all-btn').addEventListener('click', fetchAllData);
@@ -229,26 +243,24 @@
         const fetchPendingOrgs = async () => {
             try {
                 const res = await fetch(`${API_BASE_URL}/admin/pending-organizations`, {
-                    headers: { 'Authorization': `Bearer ${adminToken}` } // 토큰 헤더 필수
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
                 });
                 const result = await res.json();
-                
-                // 데이터 위치 자동 보정 (result.data가 없으면 result 자체가 배열인지 확인)
                 const list = result.data || (Array.isArray(result) ? result : []);
                 renderOrgTable(list);
             } catch (err) { console.error(err); }
         };
 
-        // 2-2. 신고 목록 조회
-        const fetchReports = async () => {
+        // 2-2. [NEW] 집회/행사 미인증 목록 조회
+        const fetchUnverifiedEvents = async () => {
             try {
-                const res = await fetch(`${API_BASE_URL}/admin/reports`, {
+                const res = await fetch(`${API_BASE_URL}/admin/events/unverified`, {
                     headers: { 'Authorization': `Bearer ${adminToken}` }
                 });
                 const result = await res.json();
                 const list = result.data || (Array.isArray(result) ? result : []);
-                renderReportTable(list);
-            } catch (err) { console.error(err); }
+                renderEventTable(list);
+            } catch (err) { console.error('Events Fetch Error:', err); }
         };
 
         // 2-3. 수정 요청 목록 조회
@@ -263,16 +275,29 @@
             } catch (err) { console.error(err); }
         };
 
+        // 2-4. 신고 목록 조회
+        const fetchReports = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/reports`, {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
+                const result = await res.json();
+                const list = result.data || (Array.isArray(result) ? result : []);
+                renderReportTable(list);
+            } catch (err) { console.error(err); }
+        };
+
         // ----------------------------------------------------------------
-        // 3. 렌더링 (변수명 대소문자 자동 처리)
+        // 3. 렌더링 함수들
         // ----------------------------------------------------------------
+        
+        // 3-1. 기관 테이블
         const renderOrgTable = (data) => {
             orgTableBody.innerHTML = '';
             document.getElementById('org-empty').classList.toggle('hidden', data.length > 0);
             
             data.forEach(org => {
                 const tr = document.createElement('tr');
-                // ★ [핵심 수정] orgName(대문자) 혹은 org_name(소문자) 둘 다 작동하도록 수정
                 const name = org.orgName || org.org_name || '이름 없음';
                 const uid = org.userId || org.userid || 'ID없음';
                 
@@ -288,41 +313,62 @@
             });
         };
 
-        const renderReportTable = (data) => {
-            reportTableBody.innerHTML = '';
-            document.getElementById('report-empty').classList.toggle('hidden', data.length > 0);
-            data.forEach(rpt => {
+        // 3-2. [NEW] 집회/행사 테이블
+        const renderEventTable = (data) => {
+            eventTableBody.innerHTML = '';
+            document.getElementById('event-empty').classList.toggle('hidden', data.length > 0);
+
+            data.forEach(evt => {
                 const tr = document.createElement('tr');
-                // 변수명 안전 처리
-                const bTitle = rpt.boardTitle || rpt.board_title || '제목 없음';
-                const bId = rpt.boardId || rpt.board_id;
-                const rReason = rpt.reportReason || rpt.report_reason;
-                const rId = rpt.reportId || rpt.report_id;
+                // 변수명 안전 처리 (DB컬럼 vs CamelCase)
+                const boardId = evt.boardId || evt.board_id;
+                const title = evt.title || '제목 없음';
+                const type = evt.participationType || evt.participation_type; // RALLY or EVENT
+                const link = evt.link || evt.url || '#';
+                const email = evt.email || 'unknown';
+                const date = evt.createdAt || evt.created_at;
+
+                // 타입 한글 변환
+                const typeLabel = (type === 'RALLY') 
+                    ? '<span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">집회</span>' 
+                    : '<span class="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">행사</span>';
 
                 tr.innerHTML = `
                     <td class="px-6 py-4">
-                        <div class="text-sm font-bold">[ID: ${bId}] ${bTitle}</div>
+                        <div class="flex items-center space-x-2">
+                            ${typeLabel}
+                            <span class="font-medium text-gray-900">${title}</span>
+                        </div>
                     </td>
-                    <td class="px-6 py-4 text-sm text-red-600 font-medium">${rReason}</td>
+                    <td class="px-6 py-4 text-sm">
+                        <a href="${link}" target="_blank" class="text-blue-600 hover:underline flex items-center">
+                            🔗 링크 확인
+                            <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        </a>
+                    </td>
                     <td class="px-6 py-4 text-xs text-gray-500">
-                        <div>작성자: ${rpt.authorEmail || rpt.author_email}</div>
-                        <div>신고일: ${new Date(rpt.reportedAt || rpt.reported_at).toLocaleString()}</div>
+                        <div>${email}</div>
+                        <div>${new Date(date).toLocaleDateString()}</div>
                     </td>
                     <td class="px-6 py-4 text-center whitespace-nowrap">
-                        <button onclick="openModal('REPORT_DELETE', ${rId}, '${bTitle}', ${bId})" class="bg-red-600 text-white px-2 py-1 rounded text-sm mr-1">글 삭제</button>
-                        <button onclick="openModal('REPORT_REJECT', ${rId}, '${bTitle}')" class="bg-gray-500 text-white px-2 py-1 rounded text-sm">기각</button>
+                        <button onclick="verifyEvent(${boardId}, true)" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 mr-2">
+                            승인
+                        </button>
+                        <button onclick="verifyEvent(${boardId}, false)" class="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600">
+                            미승인
+                        </button>
                     </td>
                 `;
-                reportTableBody.appendChild(tr);
+                eventTableBody.appendChild(tr);
             });
         };
 
+        // 3-3. 수정 요청 테이블
         const renderEditTable = (data) => {
             editTableBody.innerHTML = '';
-            editEmpty.classList.toggle('hidden', data.length > 0);
+            document.getElementById('edit-empty').classList.toggle('hidden', data.length > 0);
             data.forEach(req => {
                 const tr = document.createElement('tr');
-                // 변수명 안전 처리
                 const orgName = req.orgName || req.org_name || '이름 없음';
                 const newIntro = req.newIntroduction || req.new_introduction || '-';
                 const newEmail = req.newEmail || req.new_email || '-';
@@ -348,9 +394,67 @@
             });
         };
 
+        // 3-4. 신고 테이블
+        const renderReportTable = (data) => {
+            reportTableBody.innerHTML = '';
+            document.getElementById('report-empty').classList.toggle('hidden', data.length > 0);
+            data.forEach(rpt => {
+                const tr = document.createElement('tr');
+                const bTitle = rpt.boardTitle || rpt.board_title || '제목 없음';
+                const bId = rpt.boardId || rpt.board_id;
+                const rReason = rpt.reportReason || rpt.report_reason;
+                const rId = rpt.reportId || rpt.report_id;
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4">
+                        <div class="text-sm font-bold">[ID: ${bId}] ${bTitle}</div>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-red-600 font-medium">${rReason}</td>
+                    <td class="px-6 py-4 text-xs text-gray-500">
+                        <div>작성자: ${rpt.authorEmail || rpt.author_email}</div>
+                        <div>신고일: ${new Date(rpt.reportedAt || rpt.reported_at).toLocaleString()}</div>
+                    </td>
+                    <td class="px-6 py-4 text-center whitespace-nowrap">
+                        <button onclick="openModal('REPORT_DELETE', ${rId}, '${bTitle}', ${bId})" class="bg-red-600 text-white px-2 py-1 rounded text-sm mr-1">글 삭제</button>
+                        <button onclick="openModal('REPORT_REJECT', ${rId}, '${bTitle}')" class="bg-gray-500 text-white px-2 py-1 rounded text-sm">기각</button>
+                    </td>
+                `;
+                reportTableBody.appendChild(tr);
+            });
+        };
+
         // ----------------------------------------------------------------
-        // 4. 액션 함수 (window 객체에 등록해야 onclick에서 보임)
+        // 4. 액션 함수 (window 객체에 등록)
         // ----------------------------------------------------------------
+        
+        // [NEW] 링크 인증 처리
+        window.verifyEvent = async (boardId, isVerified) => {
+            const action = isVerified ? '승인(인증 완료)' : '미승인(인증 취소)';
+            if (!confirm(`게시글(ID:${boardId})을 ${action} 처리하시겠습니까?`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/events/verify`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}` 
+                    },
+                    body: JSON.stringify({ boardId, isVerified })
+                });
+
+                if (res.ok) {
+                    alert(`${action} 처리가 완료되었습니다.`);
+                    fetchUnverifiedEvents(); // 목록 새로고침
+                } else {
+                    const result = await res.json();
+                    alert(result.message || '처리 중 오류가 발생했습니다.');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('서버 통신 오류가 발생했습니다.');
+            }
+        };
+
         window.approveOrg = async (id, name) => {
             if (!confirm(`'${name}' 가입을 승인하시겠습니까?`)) return;
             try {
@@ -385,6 +489,7 @@
             } catch (err) { alert('처리 중 오류가 발생했습니다.'); }
         };
 
+        // 모달 열기
         window.openModal = (mode, id, name, subId = null) => {
             modalMode = mode;
             activeId = id;
@@ -409,6 +514,7 @@
 
         document.getElementById('modal-cancel-btn').addEventListener('click', () => reasonModal.classList.add('hidden'));
 
+        // 모달 확인 버튼
         modalConfirmBtn.addEventListener('click', async () => {
             const reason = reasonInput.value.trim();
             if (!reason) return alert('사유를 입력해주세요.');
@@ -448,6 +554,6 @@
             } catch(e) { console.error(e); alert('통신 오류'); }
         });
     });
-</script>
+    </script>
 </body>
 </html>
