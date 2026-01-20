@@ -82,6 +82,7 @@ exports.createPost = async (req, res) => {
         await connection.beginTransaction();
         const user_id = req.user.id;
 
+        /*
         // 하루 게시글 2개 초과 검사
         const [countRows] = await connection.query(
             'SELECT COUNT(*) as count FROM boards WHERE user_id = ? AND DATE(created_at) = CURDATE()',
@@ -90,6 +91,7 @@ exports.createPost = async (req, res) => {
         if (countRows[0].count >= 2) {
             throw new Error("하루 게시글 등록 가능 개수를 초과했습니다."); //
         }
+        */
 
         const { 
             participation_type, title, topics, content, 
