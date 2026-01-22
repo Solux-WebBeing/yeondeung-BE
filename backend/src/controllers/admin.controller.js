@@ -442,18 +442,27 @@ exports.rejectOrgEdit = async (req, res) => {
  * - participation_type이 '집회' 또는 '행사'인 게시글 중
  * - 아직 인증되지 않은(is_verified = 0) 게시글을 조회합니다.
  */
+/**
+ * 10. (관리자) 링크 인증이 필요한 집회/행사 게시글 목록 조회
+ * - 수정 사항: 외부 링크(b.link) 제거, link 필드를 게시글 상세 URL로 변경
+ */
 exports.getUnverifiedEvents = async (req, res) => {
     let connection;
     try {
         connection = await pool.getConnection();
 
-        // [수정] u.nickname 컬럼 제거 (테이블에 없으므로 에러 발생함)
+        // 1. 프론트엔드 도메인 주소 설정 (환경 변수 또는 하드코딩)
+        // 예: 'https://yeondeung.com' 또는 'http://localhost:3000'
+        const clientHost = process.env.CLIENT_HOST || 'http://localhost:3000';
+
         const sql = `
             SELECT 
                 b.id AS board_id,
                 b.title,
                 b.participation_type,
-                b.link, 
+                -- [수정] 원본 외부 링크(b.link)는 제거하고,
+                -- 프론트엔드 호스트와 게시글 ID를 합쳐서 'link'라는 이름으로 서빙합니다.
+                CONCAT(?, '/posts/', b.id) AS link, 
                 b.created_at,
                 IFNULL(u.email, '탈퇴/알수없음') AS email
             FROM boards b
@@ -463,7 +472,9 @@ exports.getUnverifiedEvents = async (req, res) => {
             ORDER BY b.created_at ASC
         `;
 
-        const [rows] = await connection.query(sql);
+        // SQL 파라미터 바인딩(?)으로 clientHost 값을 안전하게 주입합니다.
+        const [rows] = await connection.query(sql, [clientHost]);
+        
         return success(res, '인증 대기 중인 집회/행사 목록 조회 성공', rows);
 
     } catch (error) {
