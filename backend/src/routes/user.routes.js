@@ -458,6 +458,51 @@ router.post('/setup/individual', verifyToken, userController.setupIndividual);
  */
 router.post('/withdraw', verifyToken, userController.withdrawMember);
 
+
+/**
+ * @swagger
+ * /api/users/check-password:
+ *   post:
+ *     summary: "비밀번호 일치 여부 확인"
+ *     description: "현재 로그인한 사용자의 비밀번호와 입력받은 비밀번호가 일치하는지 확인합니다."
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - password
+ *             properties:
+ *               password:
+ *                 type: string
+ *                 description: "확인할 비밀번호"
+ *     responses:
+ *       200:
+ *         description: "비밀번호 일치 여부 반환"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     isMatch:
+ *                       type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: "요청 형식 오류 또는 비밀번호 미입력"
+ */
+router.post('/check-password', verifyToken, userController.checkPassword);
+
+
 /**
  * @swagger
  * /api/users/profile:
