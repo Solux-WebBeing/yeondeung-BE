@@ -950,6 +950,51 @@ exports.withdrawMember = async (req, res) => {
   }
 };
 
+
+/**
+ * 비밀번호 일치 여부 확인 API
+ */
+exports.checkPassword = async (req, res) => {
+  const { id } = req.user; // 미들웨어에서 가져온 사용자 ID
+  const { password } = req.body; // 클라이언트가 입력한 비밀번호
+  let connection;
+
+  try {
+    if (!password) {
+      return fail(res, '비밀번호를 입력해주세요.', 400);
+    }
+
+    connection = await pool.getConnection();
+    
+    // 1. DB에서 해당 사용자의 암호화된 비밀번호 조회
+    const [users] = await connection.query(
+      'SELECT password FROM users WHERE id = ?', 
+      [id]
+    );
+
+    if (users.length === 0) {
+      return fail(res, '사용자를 찾을 수 없습니다.', 404);
+    }
+
+    // 2. bcrypt를 이용한 비밀번호 비교
+    const isMatch = await bcrypt.compare(password, users[0].password);
+
+    // 3. 결과 반환
+    if (isMatch) {
+      return success(res, { isMatch: true }, '비밀번호가 일치합니다.');
+    } else {
+      // 보안상 에러 코드를 400으로 주거나, 성공 응답 내에서 false를 전달할 수 있습니다.
+      return success(res, { isMatch: false }, '비밀번호가 일치하지 않습니다.');
+    }
+
+  } catch (error) {
+    console.error(error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
 /**
  * 토큰 재발급 (Refresh Token 검증)
  */
