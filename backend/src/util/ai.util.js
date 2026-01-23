@@ -2,13 +2,58 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const ai = new GoogleGenerativeAI(process.env.OPENAI_API_KEY);
 
+// 모델 우선순위
+const MODEL_PRIORITY = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+
+];
+
+let currentModelIndex = 0;
+
+function getCurrentModel() {
+  return MODEL_PRIORITY[currentModelIndex];
+}
+
+function switchToNextModel() {
+  if (currentModelIndex < MODEL_PRIORITY.length - 1) {
+    currentModelIndex++;
+    console.log(`[AI 모델 전환]: ${MODEL_PRIORITY[currentModelIndex - 1]} → ${getCurrentModel()}`);
+    return true;
+  }
+  console.log('[🚨AI 모든 모델 할당량 소진]');
+  return false;
+}
+
+async function generateWithFallback(prompt) {
+  let lastError = null;
+
+  while (currentModelIndex < MODEL_PRIORITY.length) {
+    try {
+      const model = ai.getGenerativeModel({ model: getCurrentModel() });
+      console.log(`[AI 사용 모델]: ${getCurrentModel()}`);
+      const result = await model.generateContent(prompt);
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.log(`[AI] ${getCurrentModel()} 오류:`, error.message);
+
+      if (!switchToNextModel()) {
+        throw new Error('AI 검증 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+      }
+    }
+  }
+  throw lastError || new Error('AI 모델 호출 실패');
+}
+
 /**
  * 1차 검사: 제목과 내용의 일치도 검증
  */
 async function verifyTitleContentMatch(title, content) {
   try {
-    const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-
     const prompt = `당신은 게시글의 제목과 내용이 일치하는지 검증하는 전문가입니다.
     다음 게시글의 제목과 내용을 분석하여 유사도를 판단해주세요.
     제목과 내용의 주제가 완전히 다르거나, 서로 모순될 때, 서로 다른 이슈를 말할 때, 스팸, 광고, 무관한 홍보 글일 경우 낮은 일치 또는 불일치를 주세요.
@@ -27,7 +72,7 @@ async function verifyTitleContentMatch(title, content) {
 
     반드시 위 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.`;
 
-    const result = await model.generateContent(prompt);
+    const result = await generateWithFallback(prompt);
     const response = result.response;
     const text = response.text();
 
@@ -75,7 +120,6 @@ async function verifyTitleContentMatch(title, content) {
  */
 async function verifyLinkContent(title, content, crawledText) {
   try {
-    const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const prompt = `
     당신은 게시글 내용과 첨부된 링크의 내용을 비교하여 일치 여부를 검증하는 전문가입니다.
     다음을 분석해주세요:
@@ -99,7 +143,7 @@ async function verifyLinkContent(title, content, crawledText) {
 
     반드시 위 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.`;
 
-    const result = await model.generateContent(prompt);
+    const result = await generateWithFallback(prompt);
     const response = result.response;
     const text = response.text();
 
@@ -146,7 +190,6 @@ async function verifyLinkContent(title, content, crawledText) {
  */
 async function verifyHarmfulContent(title, content, crawledText) {
   try {
-    const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const prompt = `당신은 게시글과 크롤링된 텍스트에서 독소 조항/유해 표현을 탐지하는 전문가입니다.
     다음 텍스트들을 분석해주세요:
 
@@ -171,7 +214,7 @@ async function verifyHarmfulContent(title, content, crawledText) {
     반드시 위 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.
 `;
 
-    const result = await model.generateContent(prompt);
+    const result = await generateWithFallback(prompt);
     const response = result.response;
     const text = response.text();
 
