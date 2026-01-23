@@ -4,16 +4,12 @@ const { Client } = require('@elastic/elasticsearch');
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 
 /**
- * [공통] 데이터에 cheerCount, dDay, Thumbnail, isCheered 등을 병합하는 함수
- */
-/**
  * [공통] 데이터에 cheerCount, dDay, Thumbnail, isCheered, host_type 등을 병합하는 함수
  */
 const enrichData = async (items, currentUserId = null) => {
     if (!items || items.length === 0) return [];
 
     const boardIds = items.map(item => item.id);
-    // [추가] 작성자 ID 추출 (중복 제거)
     const userIds = [...new Set(items.map(item => item.user_id).filter(id => id))];
 
     const today = new Date();
@@ -25,14 +21,35 @@ const enrichData = async (items, currentUserId = null) => {
     );
     const cheerMap = cheerCounts.reduce((acc, cur) => { acc[cur.board_id] = cur.count; return acc; }, {});
 
-    // 2. [추가] 로그인한 경우, 내가 응원한 글 목록 조회
+    // 2. [로그인 시 전용] 
+    //    A. 내가 응원한 글 목록 조회
+    //    B. [추가] 나의 관심사(Topics) 조회
     let myCheerSet = new Set();
+    let myInterestTopics = []; // 로그인한 유저의 관심사 저장
+
     if (currentUserId) {
+        // A. 응원 여부 확인
         const [myCheers] = await db.execute(
             `SELECT board_id FROM cheers WHERE user_id = ? AND board_id IN (${boardIds.join(',')})`,
             [currentUserId]
         );
         myCheerSet = new Set(myCheers.map(c => c.board_id));
+
+        // B. 내 관심사 조회 (users 테이블에 topics 컬럼이 있다고 가정)
+        try {
+            const [userInfo] = await db.execute(
+                `SELECT topics FROM users WHERE id = ?`,
+                [currentUserId]
+            );
+            if (userInfo.length > 0 && userInfo[0].topics) {
+                // DB에 '여성,기후' 처럼 저장된 경우 배열로 변환
+                myInterestTopics = Array.isArray(userInfo[0].topics)
+                    ? userInfo[0].topics
+                    : userInfo[0].topics.split(',').map(t => t.trim());
+            }
+        } catch (err) {
+            console.error("User Interest Fetch Error:", err);
+        }
     }
 
     // 3. 썸네일 이미지 조회
@@ -42,19 +59,15 @@ const enrichData = async (items, currentUserId = null) => {
     const imageMap = {};
     images.forEach(img => { if (!imageMap[img.board_id]) imageMap[img.board_id] = img.image_url; });
 
-    // ---------------------------------------------------------
-    // 4. [신규 추가] 작성자(Users) 정보 조회 (host_type 해결)
-    // ---------------------------------------------------------
+    // 4. 작성자(Users) 정보 조회 (host_type 해결)
     const userMap = {};
     if (userIds.length > 0) {
-        // user_type 컬럼 조회
         const [users] = await db.execute(
             `SELECT id, user_type FROM users WHERE id IN (${userIds.join(',')})`
         );
         
         users.forEach(u => {
             let typeStr = "기타";
-            // 0, 1 등 숫자로 저장된 경우와 문자열인 경우 모두 대응
             if (u.user_type === 0 || u.user_type === "individual") typeStr = "individual";
             else if (u.user_type === 1 || u.user_type === "organization") typeStr = "organization";
             else if (u.user_type) typeStr = u.user_type; 
@@ -62,7 +75,6 @@ const enrichData = async (items, currentUserId = null) => {
             userMap[u.id] = typeStr;
         });
     }
-    // ---------------------------------------------------------
 
     const DEFAULT_THUMBNAIL = "https://your-domain.com/assets/default-thumbnail.png";
 
@@ -70,14 +82,27 @@ const enrichData = async (items, currentUserId = null) => {
     return items.map(item => {
         const count = cheerMap[item.id] || 0;
 
+        // 게시글 토픽 파싱
         const topicArray = item.topics 
             ? (Array.isArray(item.topics) ? item.topics : item.topics.split(',').map(t => t.trim())) 
             : [];
 
+        // [로직 수정] 맞춤형 토픽 선정
         let displayTopic = "사회";
+        
         if (topicArray.length > 0) {
-            const randomIndex = Math.floor(Math.random() * topicArray.length);
-            displayTopic = topicArray[randomIndex];
+            // 1순위: 내 관심사와 게시글 주제의 교집합 확인
+            const matchingTopics = topicArray.filter(t => myInterestTopics.includes(t));
+
+            if (matchingTopics.length > 0) {
+                // 교집합 중 하나 선택 (예: 내가 '여성' 관심 있고, 글도 '여성'이면 '여성' 선택)
+                const randomIndex = Math.floor(Math.random() * matchingTopics.length);
+                displayTopic = matchingTopics[randomIndex];
+            } else {
+                // 2순위: 겹치는게 없으면 게시글 주제 중 랜덤 선택
+                const randomIndex = Math.floor(Math.random() * topicArray.length);
+                displayTopic = topicArray[randomIndex];
+            }
         }
 
         let dDay = "상시";
@@ -96,7 +121,6 @@ const enrichData = async (items, currentUserId = null) => {
             return isNaN(d.getTime()) ? "" : `${d.getFullYear()}. ${String(d.getMonth() + 1).padStart(2, '0')}. ${String(d.getDate()).padStart(2, '0')}`;
         };
 
-        // DB에서 조회한 userMap 값 사용 (없으면 기존 값, 그것도 없으면 "기타")
         const finalHostType = userMap[item.user_id] || item.host_type || "기타";
 
         return {
@@ -115,12 +139,10 @@ const enrichData = async (items, currentUserId = null) => {
             cheerCount: count,
             isCheered: myCheerSet.has(item.id),
             isAuthor: currentUserId === item.user_id,
-            
-            // [수정] 조회한 작성자 타입 적용
             host_type: finalHostType,
-            
             dDay,
             isTodayEnd,
+            // [결과] 우선순위에 따라 선정된 displayTopic 사용
             interestMessage: `${displayTopic} 의제에 관심이 있는 ${count}명이 연대합니다!`
         };
     });
