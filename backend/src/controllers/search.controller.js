@@ -20,16 +20,48 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     // user_id만 뽑아서 중복 제거 (작성자 정보 조회용)
     const userIds = [...new Set(results.map(post => post.user_id).filter(id => id))];
 
-    // 1. 전체 응원수 조회
+    // ---------------------------------------------------------
+    // 1. [기존] 전체 응원수 조회 (cheerCount 표시용)
+    // ---------------------------------------------------------
     const [totalCheers] = await pool.query(
         `SELECT board_id, COUNT(*) as count FROM cheers WHERE board_id IN (?) GROUP BY board_id`,
         [boardIds]
     );
     const cheerMap = totalCheers.reduce((acc, cur) => { acc[cur.board_id] = cur.count; return acc; }, {});
 
-    // 2. [로그인 시 전용] 
+    // ---------------------------------------------------------
+    // 2. [신규] 응원한 사람들의 관심사(Topics) 정보 조회 (interestMessage 카운팅용)
+    // ---------------------------------------------------------
+    const [cheerDetails] = await pool.query(
+        `SELECT c.board_id, u.topics 
+         FROM cheers c 
+         JOIN users u ON c.user_id = u.id 
+         WHERE c.board_id IN (?)`,
+        [boardIds]
+    );
+
+    // 게시글별로 [ ['여성', '기후'], ['노동'], ... ] 형태의 관심사 맵 생성
+    const boardCheerTopicsMap = {};
+    cheerDetails.forEach(row => {
+        if (!boardCheerTopicsMap[row.board_id]) boardCheerTopicsMap[row.board_id] = [];
+        
+        if (row.topics) {
+            // DB 문자열 -> 배열 변환
+            const userTopicsArray = Array.isArray(row.topics) 
+                ? row.topics 
+                : row.topics.split(',').map(t => t.trim());
+            boardCheerTopicsMap[row.board_id].push(userTopicsArray);
+        } else {
+            // 관심사 없는 유저는 빈 배열
+            boardCheerTopicsMap[row.board_id].push([]);
+        }
+    });
+
+    // ---------------------------------------------------------
+    // 3. [로그인 시 전용] 
     //    A. 사용자가 응원했는지 여부 조회
     //    B. 사용자의 관심사(Topics) 조회 (맞춤 메시지용)
+    // ---------------------------------------------------------
     let userCheerSet = new Set();
     let myInterestTopics = []; // 로그인한 유저의 관심사 목록
 
@@ -41,8 +73,7 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
         );
         userCheerSet = new Set(userCheers.map(c => c.board_id));
 
-        // B. 사용자 관심사 조회 (users 테이블에 topics 컬럼이 있다고 가정)
-        // ※ 주의: DB 컬럼명이 다르다면 'topics' 부분을 실제 컬럼명(예: interests)으로 변경해주세요.
+        // B. 사용자 관심사 조회
         try {
             const [userInfo] = await pool.query(
                 `SELECT topics FROM users WHERE id = ?`, 
@@ -50,18 +81,16 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             );
             
             if (userInfo.length > 0 && userInfo[0].topics) {
-                // DB에 '여성,기후,노동' 처럼 문자열로 저장된 경우 배열로 변환
                 myInterestTopics = Array.isArray(userInfo[0].topics)
                     ? userInfo[0].topics
                     : userInfo[0].topics.split(',').map(t => t.trim());
             }
         } catch (err) {
             console.error("User Interest Fetch Error:", err);
-            // 오류 발생 시 빈 배열로 진행 (기능이 멈추지 않도록)
         }
     }
 
-    // 3. 썸네일 이미지 조회
+    // 4. 썸네일 이미지 조회
     const [boardImages] = await pool.query(
         `SELECT board_id, image_url FROM board_images WHERE board_id IN (?) ORDER BY id ASC`,
         [boardIds]
@@ -69,9 +98,7 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     const imageMap = {};
     boardImages.forEach(img => { if (!imageMap[img.board_id]) imageMap[img.board_id] = img.image_url; });
 
-    // ---------------------------------------------------------
-    // 4. 작성자(Users) 정보 조회 (user_type 컬럼 사용)
-    // ---------------------------------------------------------
+    // 5. 작성자(Users) 정보 조회
     const userMap = {};
     if (userIds.length > 0) {
         const [users] = await pool.query(
@@ -90,7 +117,6 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             userMap[u.id] = typeStr;
         });
     }
-    // ---------------------------------------------------------
 
     const today = new Date();
     const todayCompare = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
@@ -101,7 +127,7 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             ? post.topics 
             : (post.topics ? post.topics.split(',').map(t => t.trim()) : []);
         
-        // [로직 수정] Interest Message용 주제 선정
+        // (A) Interest Message용 주제(topicName) 선정
         let topicName = "사회"; 
         
         if (currentTopics.length > 0) {
@@ -109,18 +135,26 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             const matchingTopics = currentTopics.filter(topic => myInterestTopics.includes(topic));
             
             if (matchingTopics.length > 0) {
-                // 교집합이 있다면 그 중에서 하나 선택 (예: '여성')
+                // 교집합이 있다면 그 중에서 하나 선택
                 const randomIndex = Math.floor(Math.random() * matchingTopics.length);
                 topicName = matchingTopics[randomIndex];
             } else {
-                // 2순위: 교집합이 없다면 게시글 주제 중 아무거나 선택
+                // 2순위: 교집합이 없다면 게시글 주제 중 랜덤 선택
                 const randomIndex = Math.floor(Math.random() * currentTopics.length);
                 topicName = currentTopics[randomIndex];
             }
         }
 
+        // (B) 전체 응원 수
         const totalCount = cheerMap[post.id] || 0;
+
+        // (C) [핵심] 해당 topicName에 관심이 있는 응원자 수 카운트
+        const cheerersTopics = boardCheerTopicsMap[post.id] || [];
+        const interestedCheerCount = cheerersTopics.filter(userTopics => 
+            userTopics.includes(topicName)
+        ).length;
         
+        // 날짜 계산 (D-Day)
         let dDay = "상시";
         let isTodayEnd = false;
 
@@ -153,15 +187,18 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             dateDisplay: (post.start_date && post.end_date) ? `${format(post.start_date, post.is_start_time_set)} ~ ${format(post.end_date, post.is_end_time_set)}` : "상시 진행",
             start_date: post.start_date,
             end_date: post.end_date,
+            
+            // 1. 단순 응원 숫자 (아이콘 옆 표시용)
             cheerCount: totalCount,
+            
             is_cheered: userCheerSet.has(post.id), 
             is_author: currentUserId === post.user_id, 
             host_type: finalHostType,
             dDay,
             isTodayEnd, 
             
-            // [결과] topicName이 '내 관심사'와 '게시글 주제'의 교집합으로 우선 설정됨
-            interestMessage: `${topicName} 의제에 관심이 있는 ${totalCount}명이 연대합니다!`
+            // 2. 관심사 기반 텍스트 (해당 의제에 관심있는 사람 수만 표기)
+            interestMessage: `${topicName} 의제에 관심이 있는 ${interestedCheerCount}명이 연대합니다!`
         };
     });
 }
