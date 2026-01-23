@@ -2,7 +2,7 @@ const swaggerJsdoc = require('swagger-jsdoc');
 
 // 두 서버 정보를 모두 정의합니다.
 const productionServer = {
-  url: 'http://3.36.147.62:8000',
+  url: 'https://yeondeung-be.duckdns.org',
   description: '실제 배포 서버',
 };
 
