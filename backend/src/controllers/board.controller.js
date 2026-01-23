@@ -454,6 +454,9 @@ exports.sharePost = async (req, res) => {
 /**
  * 6. 응원봉 클릭 (토글)
  */
+/**
+ * 6. 응원봉 클릭 (토글)
+ */
 exports.toggleCheer = async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -461,9 +464,21 @@ exports.toggleCheer = async (req, res) => {
         const userId = req.user.id;
         const { id } = req.params;
 
-        const [boardExists] = await connection.query('SELECT id FROM boards WHERE id = ?', [id]);
-        if (boardExists.length === 0) throw new Error('NOT_FOUND_BOARD');
+        // [1] 게시글 존재 여부 및 작성자 ID 확인
+        const [boardRows] = await connection.query('SELECT user_id FROM boards WHERE id = ?', [id]);
+        if (boardRows.length === 0) throw new Error('NOT_FOUND_BOARD');
         
+        const boardAuthorId = boardRows[0].user_id;
+
+        // [추가] 본인 게시글인 경우 응원봉 클릭 차단
+        if (boardAuthorId === userId) {
+            await connection.rollback();
+            return res.status(403).json({ 
+                success: false, 
+                message: '본인이 작성한 게시글에는 응원봉을 켤 수 없습니다.' 
+            });
+        }
+
         const [exists] = await connection.query('SELECT id FROM cheers WHERE user_id = ? AND board_id = ?', [userId, id]);
 
         let isCheered = false;
@@ -487,8 +502,13 @@ exports.toggleCheer = async (req, res) => {
             message: isCheered ? '응원봉을 켰습니다!' : '응원봉을 껐습니다.'
         });
     } catch (error) {
-        await connection.rollback();
+        if (connection) await connection.rollback();
         console.error('응원봉 처리 에러:', error);
+        
+        if (error.message === 'NOT_FOUND_BOARD') {
+            return res.status(404).json({ success: false, message: '게시글을 찾을 수 없습니다.' });
+        }
+        
         res.status(500).json({ success: false, message: '요청을 처리하지 못했습니다.' });
     } finally {
         connection.release();
