@@ -410,7 +410,7 @@ exports.login = async (req, res) => {
 
     // (2) Access Token (유효기간 짧게: 예: 1시간)
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: '1h', // 유효기간 1시간
+      expiresIn: '48h', // 유효기간 1시간
     });
 
     // (3) Refresh Token (유효기간 길게: 예: 14일)
