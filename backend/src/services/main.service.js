@@ -166,9 +166,20 @@ async function enrichData(results, currentUserId = null) {
             else { dDay = `D-${diffDays}`; }
         }
 
-        const format = (d, t) => d ? `${new Date(d).toISOString().split('T')[0].replace(/-/g, '. ')}${t ? ' ' + d.substring(11, 16) : ''}` : "";
+        const format = (d, t) => {
+            if (!d) return "";
+            try {
+                const dateObj = new Date(d);
+                const isoStr = dateObj.toISOString();
+                const datePart = isoStr.split('T')[0].replace(/-/g, '. ');
+                const timePart = t ? ' ' + isoStr.substring(11, 16) : '';
+                return `${datePart}${timePart}`;
+            } catch (e) {
+                return ""; // 날짜 형식이 잘못되었을 경우 대비
+            }
+        };
+        
         const finalHostType = post.host_type || userMap[post.user_id] || "기타";
-
         return {
             id: post.id,
             title: post.title,
