@@ -182,7 +182,17 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             }
         }
 
-        const format = (d, t) => d ? `${new Date(d).toISOString().split('T')[0].replace(/-/g, '. ')}${t ? ' ' + d.substring(11, 16) : ''}` : "";
+        // [수정된 format 헬퍼]
+        const format = (d, t) => {
+            if (!d) return "";
+            const dateObj = new Date(d);
+            const isoStr = dateObj.toISOString(); // "2023-10-25T14:30:00.000Z"
+            
+            const datePart = isoStr.split('T')[0].replace(/-/g, '. '); // "2023. 10. 25"
+            const timePart = t ? ' ' + isoStr.substring(11, 16) : '';  // t가 true면 " 14:30" 추가
+            
+            return `${datePart}${timePart}`;
+        };
         const finalHostType = post.host_type || userMap[post.user_id] || "기타";
 
         return {
