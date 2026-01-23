@@ -453,7 +453,7 @@ exports.getUnverifiedEvents = async (req, res) => {
 
         // 1. 프론트엔드 도메인 주소 설정 (환경 변수 또는 하드코딩)
         // 예: 'https://yeondeung.com' 또는 'http://localhost:3000'
-        const clientHost = process.env.CLIENT_HOST || 'http://localhost:3000';
+        const clientHost = process.env.CLIENT_HOST || 'https://yeondeung-b449c.web.app';
 
         const sql = `
             SELECT 
