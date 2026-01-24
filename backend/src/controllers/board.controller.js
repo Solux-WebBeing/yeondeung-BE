@@ -29,7 +29,7 @@ const uploadToImgBB = async (fileBuffer) => {
         formData.append('image', fileBuffer.toString('base64'));
 
         const response = await axios.post(`https://api.imgbb.com/1/upload?key=${apiKey}`, formData, {
-            headers: formData.getHeaders(), // 'form-data' 패키지 객체에서 호출
+            headers: formData.getHeaders(),
         });
 
         return response.data.data.url;
@@ -54,7 +54,6 @@ const buildSuggestInput = (title, topics) => {
         suggestSet.add(title.trim());
     }
     if (topics) {
-        // topics가 배열일 수도, 문자열일 수도 있으므로 방어적 처리
         const tList = Array.isArray(topics) ? topics : topics.split(',');
         tList.forEach(t => {
             const trimmed = t.trim();
@@ -65,15 +64,26 @@ const buildSuggestInput = (title, topics) => {
 };
 
 /**
- * [Helper] 날짜 포맷팅 - ISO 8601 표준 사용
+ * [Helper] 날짜 포맷팅 - ISO 8601 표준 (KST 보정 적용)
+ * MySQL 저장용 문자열("2026-01-24 18:00:00")이 들어오면
+ * 이를 KST("2026-01-24T18:00:00+09:00")로 해석하여 정확한 ISO 표준으로 변환
  */
 const toEsDate = (dateStr) => {
     if (!dateStr) return null;
     try {
-        const d = new Date(dateStr);
-        // 수동 포맷팅 대신 ISO 표준인 .toISOString()을 그대로 반환합니다.
-        return d.toISOString(); 
+        // 이미 Date 객체라면 바로 ISO 변환
+        if (dateStr instanceof Date) return dateStr.toISOString();
+
+        // "YYYY-MM-DD HH:mm:ss" 형식의 문자열이라면 KST(+09:00) 강제 적용
+        if (typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T')) {
+            const kstIso = dateStr.replace(' ', 'T') + '+09:00';
+            return new Date(kstIso).toISOString();
+        }
+
+        // 그 외(이미 ISO 형식이거나 UTC 포맷)는 그대로 변환
+        return new Date(dateStr).toISOString();
     } catch (e) { 
+        console.error("Date Parsing Error:", e);
         return null; 
     }
 };
@@ -87,59 +97,39 @@ exports.createPost = async (req, res) => {
         await connection.beginTransaction();
         const user_id = req.user.id;
 
-        /*
-        // 하루 게시글 2개 초과 검사
-        const [countRows] = await connection.query(
-            'SELECT COUNT(*) as count FROM boards WHERE user_id = ? AND DATE(created_at) = CURDATE()',
-            [user_id]
-        );
-        if (countRows[0].count >= 2) {
-            throw new Error("하루 게시글 등록 가능 개수를 초과했습니다."); //
-        }
-        */
-
         const { 
             participation_type, title, topics, content, 
             start_date, start_time, end_date, end_time, 
             region, district, link 
-            // images는 req.body가 아니라 req.files에서 처리
         } = req.body;
 
         const { aiVerified } = req.validatedData || { aiVerified: false };
 
-        // [0] 이미지 처리 (ImgBB) - 최대 2개 제한
+        // [0] 이미지 처리
         let imageUrls = [];
-        
-        // Multer를 통해 파일이 업로드된 경우 (req.files)
         if (req.files && req.files.length > 0) {
-            if (req.files.length > 2) {
-                throw new Error("사진은 최대 2장까지만 첨부할 수 있습니다.");
-            }
-            // 병렬로 이미지 업로드 진행
+            if (req.files.length > 2) throw new Error("사진은 최대 2장까지만 첨부할 수 있습니다.");
             imageUrls = await Promise.all(req.files.map(file => uploadToImgBB(file.buffer)));
-        } 
-        // 기존처럼 URL 문자열 배열로 들어온 경우 (req.body.images) 호환성 유지
-        else if (req.body.images) {
+        } else if (req.body.images) {
             const bodyImages = Array.isArray(req.body.images) ? req.body.images : [req.body.images];
             if (bodyImages.length > 2) throw new Error("사진은 최대 2장까지만 첨부할 수 있습니다.");
             imageUrls = bodyImages;
         }
 
-        // [1] 시간 검증 및 조합
+        // [1] 시간 검증 및 조합 (MySQL 저장용 문자열 생성)
         if (!validateTimeFormat(start_time) || !validateTimeFormat(end_time)) {
             throw new Error("시간 형식이 올바르지 않거나 5분 단위가 아닙니다. (HH:MM)");
         }
-
         const is_start_time_set = !!start_time;
         const is_end_time_set = !!end_time;
         const finalStartDate = is_start_time_set ? `${start_date} ${start_time}:00` : `${start_date} 00:00:00`;
         const finalEndDate = is_end_time_set ? `${end_date} ${end_time}:00` : `${end_date} 00:00:00`;
 
-        // [2] 의제 개수 및 유효성 확인
+        // [2] 의제 유효성 검사
         const topicList = topics.split(',').map(t => t.trim()).filter(t => t !== '');
         if (topicList.length < 1 || topicList.length > 2) throw new Error("의제는 1~2개만 선택 가능합니다.");
 
-        // [3] MySQL boards 테이블 삽입
+        // [3] MySQL Insert
         const isOfflineEvent = ['집회', '행사'].includes(participation_type);
         const sql = `
             INSERT INTO boards 
@@ -153,90 +143,52 @@ exports.createPost = async (req, res) => {
         ]);
         const newBoardId = result.insertId;
 
-        // [4] 의제(Topics) 정규화 매핑 저장
-        // [4] 의제(Topics) 정규화 매핑 저장 (수정본)
+        // [4] 의제(Topics) 매핑
         const [topicRows] = await connection.query('SELECT id, name FROM topics');
         const topicMap = {};
+        topicRows.forEach(row => { topicMap[row.name.trim()] = row.id; });
 
-        // 1. DB 토픽명을 Map에 저장 (실수 방지를 위해 trim 처리)
-        topicRows.forEach(row => {
-            topicMap[row.name.trim()] = row.id;
-        });
-
-        // 2. 입력받은 topicList를 순회하며 유효한 ID만 추출
         const topicValues = [];
-        const missingTopics = [];
-
         topicList.forEach(name => {
-            const trimmedName = name.trim();
-            const topicId = topicMap[trimmedName];
-            
-            if (topicId) {
-                // [참고] create 함수면 newBoardId, update 함수면 id를 사용하게끔 처리
-                topicValues.push([newBoardId || id, topicId]); 
-            } else {
-                // DB에 없는 토픽이 들어온 경우 기록 (디버깅용)
-                missingTopics.push(trimmedName);
-            }
+            const topicId = topicMap[name.trim()];
+            if (topicId) topicValues.push([newBoardId, topicId]);
         });
 
-        // 3. 존재하지 않는 토픽이 입력된 경우 서버 로그에 출력
-        if (missingTopics.length > 0) {
-            console.error(`❌ DB에 존재하지 않는 토픽 입력됨: ${missingTopics.join(', ')}`);
-        }
-
-        // 4. [핵심] 유효한 토픽이 단 하나도 없다면 에러를 던져 저장 중단 (main 의도)
-        if (topicValues.length === 0) {
-            throw new Error("유효하지 않은 의제입니다. 등록된 의제 중에서 선택해주세요.");
-        }
-
-        // 5. 최종적으로 DB에 매핑 정보 삽입
+        if (topicValues.length === 0) throw new Error("유효하지 않은 의제입니다.");
         await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
 
-        // 4. 최종 저장
-        if (topicValues.length > 0) {
-            await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
-        } else {
-            // 하나도 매핑되지 않았다면 필수 입력 위반으로 간주하고 에러 처리하는 것이 안전함
-            throw new Error("유효한 의제를 최소 하나 이상 선택해주세요.");
-        }
-
-        // [5] 이미지 URL 저장 (ImgBB에서 받은 URL 사용)
+        // [5] 이미지 저장
         if (imageUrls.length > 0) {
             const imageValues = imageUrls.map(imgUrl => [newBoardId, imgUrl]);
             await connection.query(`INSERT INTO board_images (board_id, image_url) VALUES ?`, [imageValues]);
         }
 
-        // [6] 알림 전송 로직 호출
+        // [6] 알림 전송
         await sendActivityNotifications(connection, {
             id: newBoardId,
             author_id: user_id,
-            participation_type, 
-            title, 
-            topics, 
-            start_date: finalStartDate, 
-            end_date: finalEndDate, 
-            region, 
-            district,
-            images: imageUrls
+            participation_type, title, topics, 
+            start_date: finalStartDate, end_date: finalEndDate, 
+            region, district, images: imageUrls
         });
 
         await connection.commit();
 
-        // [6] ELK 실시간 인덱싱 (수정본)
+        // [7] ELK 실시간 인덱싱 (수정된 toEsDate 사용)
         try {
             await esClient.index({
                 index: 'boards',
                 id: newBoardId.toString(),
-                refresh: true,
+                refresh: true, // 즉시 검색 반영 옵션
                 document: {
                     id: newBoardId,
                     user_id, 
-                    host_type: req.user.user_type, // [추가] 필터링을 위해 반드시 필요
+                    host_type: req.user.user_type,
                     participation_type, 
                     title, 
                     topics: topicList, 
                     content,
+                    // [핵심] 여기서 문자열을 넘기면 toEsDate가 KST로 변환해줌
                     start_date: toEsDate(finalStartDate),
                     end_date: toEsDate(finalEndDate),
                     is_start_time_set,
@@ -247,35 +199,25 @@ exports.createPost = async (req, res) => {
                     is_verified: false,
                     ai_verified: !!aiVerified,
                     suggest: buildSuggestInput(title, topics),
-                    // [추가] 검색 결과 썸네일을 위해 첫 번째 이미지 URL 저장
                     thumbnail: imageUrls.length > 0 ? imageUrls[0] : null,
-                    created_at: toEsDate(new Date())
+                    created_at: toEsDate(new Date()) // 생성일은 현재 시간이므로 그대로
                 }
             });
             console.log(`✅ ELK Indexing Success: ID ${newBoardId}`);
         } catch (esErr) { 
-            console.error('❌ ELK Indexing Error 상세:', esErr.meta?.body?.error || esErr.message); 
+            console.error('❌ ELK Indexing Error:', esErr.meta?.body?.error || esErr.message); 
         }
 
         return success(res, { postId: newBoardId }, '등록되었습니다.');
     } catch (error) {
         if (connection) await connection.rollback();
-        // 예외 문구 처리
-        const userMessages = [
-            "하루 게시글 등록 가능 개수를 초과했습니다.",
-            "유효하지 않은 의제입니다. 등록된 의제 중에서 선택해주세요."
-        ];
-
-        // 직접 정의한 에러 메시지가 아니면 서버 오류 메시지로 대체
-        const finalMessage = userMessages.includes(error.message) 
-            ? error.message 
-            : "일시적인 오류로 게시글을 등록하지 못했습니다. 잠시 후 다시 시도해주세요.";
+        const userMessages = ["하루 게시글 등록 가능 개수를 초과했습니다.", "유효하지 않은 의제입니다.", "사진은 최대 2장까지만 첨부할 수 있습니다."];
+        const finalMessage = userMessages.some(msg => error.message.includes(msg)) ? error.message : "일시적인 오류로 게시글을 등록하지 못했습니다.";
         return fail(res, finalMessage, 400);
     } finally {
         connection.release();
     }
 };
-
 
 /**
  * 2. 게시글 수정 (Update)
@@ -287,51 +229,38 @@ exports.updatePost = async (req, res) => {
         const { id } = req.params;
         const userId = req.user.id;
         
-        // existing_images: 클라이언트가 "삭제하지 않고 남겨둔" 기존 이미지 URL 리스트
-        // req.files: 클라이언트가 "새로 추가한" 이미지 파일 리스트
         const { 
             participation_type, title, topics, content, 
             start_date, start_time, end_date, end_time, 
             region, district, link, existing_images 
         } = req.body;
 
-        // [1] 권한 확인 및 기존 ai_verified 값 조회
         const [board] = await connection.query('SELECT user_id, ai_verified FROM boards WHERE id = ?', [id]);
         if (board.length === 0) throw new Error('게시글을 찾을 수 없습니다.');
         if (board[0].user_id !== userId) throw new Error('수정 권한이 없습니다.');
         
         const existingAiVerified = board[0].ai_verified;
 
-        // [2] 이미지 처리 (기존 유지 + 신규 업로드)
+        // [이미지 처리]
         let finalImageUrls = [];
-
-        // 2-1. 기존 유지할 이미지 처리
         if (existing_images) {
             const keepList = Array.isArray(existing_images) ? existing_images : [existing_images];
             finalImageUrls.push(...keepList);
         }
-
-        // 2-2. 신규 이미지 업로드 (ImgBB)
         if (req.files && req.files.length > 0) {
             const newImageUrls = await Promise.all(req.files.map(file => uploadToImgBB(file.buffer)));
             finalImageUrls.push(...newImageUrls);
         }
+        if (finalImageUrls.length > 2) throw new Error("사진은 최대 2장까지만 등록 가능합니다.");
 
-        // 2-3. 개수 제한 검사 (최대 2개)
-        if (finalImageUrls.length > 2) {
-            throw new Error("사진은 최대 2장까지만 등록 가능합니다 (기존 포함).");
-        }
-
-        // [3] 시간 검증 및 조합
-        if (!validateTimeFormat(start_time) || !validateTimeFormat(end_time)) {
-            throw new Error("시간 형식이 올바르지 않거나 5분 단위가 아닙니다. (HH:MM)");
-        }
+        // [시간 조합]
+        if (!validateTimeFormat(start_time) || !validateTimeFormat(end_time)) throw new Error("시간 형식이 올바르지 않습니다.");
         const is_start_time_set = !!start_time;
         const is_end_time_set = !!end_time;
         const finalStartDate = is_start_time_set ? `${start_date} ${start_time}:00` : `${start_date} 00:00:00`;
         const finalEndDate = is_end_time_set ? `${end_date} ${end_time}:00` : `${end_date} 00:00:00`;
 
-        // [4] MySQL boards 업데이트
+        // [MySQL Update]
         const isOfflineEvent = ['집회', '행사'].includes(participation_type);
         await connection.query(`
             UPDATE boards SET 
@@ -341,50 +270,27 @@ exports.updatePost = async (req, res) => {
             WHERE id = ?
         `, [participation_type, title, topics, content, finalStartDate, finalEndDate, is_start_time_set, is_end_time_set, isOfflineEvent ? region : null, isOfflineEvent ? district : null, link || null, id]);
 
-        // [5] 의제(Topics) 매핑 갱신 (수정본)
-        // 기존 매핑 삭제
+        // [의제 매핑 갱신]
         await connection.query('DELETE FROM board_topics WHERE board_id = ?', [id]);
-
         const [topicRows] = await connection.query('SELECT id, name FROM topics');
         const topicMap = {};
+        topicRows.forEach(row => { topicMap[row.name.trim()] = row.id; });
 
-        // 1. DB 토픽명을 Map에 저장 (trim 처리로 공백 방어)
-        topicRows.forEach(row => {
-            topicMap[row.name.trim()] = row.id;
-        });
-
-        // 2. 입력받은 topics 처리 (문자열/배열 모두 대응)
         const rawTopics = Array.isArray(topics) ? topics.join(',') : topics;
         const topicList = rawTopics.split(',').map(t => t.trim()).filter(Boolean);
-
         const topicValues = [];
-        const missingTopics = [];
-
         topicList.forEach(name => {
             const topicId = topicMap[name];
-            if (topicId) {
-                topicValues.push([id, topicId]); // 수정 시에는 params에서 온 id 사용
-            } else {
-                missingTopics.push(name);
-            }
+            if (topicId) topicValues.push([id, topicId]);
         });
 
-        // 3. 디버깅 및 에러 처리
-        if (missingTopics.length > 0) {
-            console.warn(`⚠️ 수정 중 알 수 없는 의제 발견: ${missingTopics.join(', ')}`);
-            // 필요 시 에러를 던져 수정을 중단시킬 수 있습니다.
-            // throw new Error(`존재하지 않는 의제입니다: ${missingTopics.join(', ')}`);
-        }
-
-        // 4. 새로운 매핑 삽입
         if (topicValues.length > 0) {
             await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
         } else {
-            // 수정 시에도 최소 하나의 유효한 토픽은 있어야 함
             throw new Error("유효한 의제를 최소 하나 이상 선택해야 수정이 가능합니다.");
         }
 
-        // [6] 이미지 URL 갱신 (기존 것 다 지우고 최종 리스트로 다시 삽입)
+        // [이미지 URL 갱신]
         await connection.query('DELETE FROM board_images WHERE board_id = ?', [id]);
         if (finalImageUrls.length > 0) {
             const imageValues = finalImageUrls.map(imgUrl => [id, imgUrl]);
@@ -393,7 +299,7 @@ exports.updatePost = async (req, res) => {
 
         await connection.commit();
 
-        // [7] ELK 실시간 업데이트
+        // [ELK Update]
         try {
             await esClient.update({
                 index: 'boards', 
@@ -401,6 +307,7 @@ exports.updatePost = async (req, res) => {
                 refresh: true,
                 doc: { 
                     participation_type, title, topics: topicList, content, 
+                    // [핵심] 여기서 문자열을 넘기면 toEsDate가 KST로 변환해줌
                     start_date: toEsDate(finalStartDate),
                     end_date: toEsDate(finalEndDate),
                     is_start_time_set,
@@ -409,7 +316,6 @@ exports.updatePost = async (req, res) => {
                     district: isOfflineEvent ? district : null,
                     ai_verified: !!existingAiVerified,
                     suggest: buildSuggestInput(title, topics),
-                    // [추가] 수정된 이미지 중 첫 번째를 썸네일로 반영
                     thumbnail: finalImageUrls.length > 0 ? finalImageUrls[0] : null,
                     updated_at: toEsDate(new Date())
                 }
@@ -437,12 +343,8 @@ exports.deletePost = async (req, res) => {
         if (board.length === 0) throw new Error('게시글을 찾을 수 없습니다.');
         if (board[0].user_id !== userId) throw new Error('삭제 권한이 없습니다.');
 
-        // [중요] DB FK 설정(ON DELETE CASCADE)이 없다면 이미지 테이블을 먼저 지워야 안전함
         await connection.query('DELETE FROM board_images WHERE board_id = ?', [id]);
         await connection.query('DELETE FROM boards WHERE id = ?', [id]);
-
-        // 참고: ImgBB API를 통해 이미지를 삭제하려면 업로드 시 받은 delete_url이 필요함.
-        // 현재 로직상 delete_url을 저장하지 않으므로 ImgBB 서버에는 이미지가 남음.
 
         try {
             await esClient.delete({ index: 'boards', id: id.toString() });
