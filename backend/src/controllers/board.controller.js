@@ -64,13 +64,18 @@ const buildSuggestInput = (title, topics) => {
     return { input: Array.from(suggestSet).filter(Boolean), weight: 10 };
 };
 
-// 날짜 포맷 강제 변환 함수 (yyyy-MM-dd HH:mm:ss)
+/**
+ * [Helper] 날짜 포맷팅 - ISO 8601 표준 사용
+ */
 const toEsDate = (dateStr) => {
     if (!dateStr) return null;
     try {
         const d = new Date(dateStr);
-        return d.toISOString().replace('T', ' ').substring(0, 19);
-    } catch (e) { return null; }
+        // 수동 포맷팅 대신 ISO 표준인 .toISOString()을 그대로 반환합니다.
+        return d.toISOString(); 
+    } catch (e) { 
+        return null; 
+    }
 };
 
 /**
