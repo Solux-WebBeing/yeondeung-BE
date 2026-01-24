@@ -5,12 +5,10 @@ require('dotenv').config({ path: '../.env' });
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 const INDEX_NAME = 'boards';
 
-// 날짜를 "YYYY-MM-DD HH:mm:ss" 형식으로 안전하게 변환 (시차 방지)
-const formatToLocalSql = (date) => {
+// [수정] ISO 8601 형식으로 변환하여 타임존 오차 및 파싱 에러 방지
+const toEsDate = (date) => {
     if (!date) return null;
-    const d = new Date(date);
-    const pad = (n) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return new Date(date).toISOString(); 
 };
 
 async function sync() {
@@ -41,9 +39,7 @@ async function sync() {
             return;
         }
 
-        // rows.flatMap 내부로 로직을 이동해야 합니다.
         const operations = rows.flatMap(doc => {
-            // [수정] 각 문서(doc)별로 토픽 배열 생성
             const topicArray = doc.topics 
                 ? doc.topics.split(',').map(t => t.trim()).filter(Boolean) 
                 : [];
@@ -59,11 +55,10 @@ async function sync() {
                 suggestSet.add(doc.title.trim());
             }
 
-            // suggestSet에도 배열화된 토픽들 추가
             topicArray.forEach(t => suggestSet.add(t));
 
             return [
-                { index: { _index: INDEX_NAME, _id: doc.id } },
+                { index: { _index: INDEX_NAME, _id: doc.id.toString() } },
                 {
                     id: doc.id,
                     user_id: doc.user_id,
@@ -71,7 +66,7 @@ async function sync() {
                     participation_type: doc.participation_type,
                     title: doc.title,
                     content: doc.content,
-                    topics: topicArray, // 가공된 배열 투입
+                    topics: topicArray,
                     region: doc.region,
                     district: doc.district,
                     link: doc.link,
@@ -82,12 +77,13 @@ async function sync() {
                         input: Array.from(suggestSet).filter(Boolean),
                         weight: 10
                     },
-                    start_date: formatToLocalSql(doc.start_date),
-                    end_date: formatToLocalSql(doc.end_date),
+                    // [수정] 모든 날짜 필드를 ISO 표준으로 변경
+                    start_date: toEsDate(doc.start_date),
+                    end_date: toEsDate(doc.end_date),
                     is_start_time_set: !!doc.is_start_time_set,
                     is_end_time_set: !!doc.is_end_time_set,
-                    created_at: formatToLocalSql(doc.created_at),
-                    updated_at: formatToLocalSql(doc.updated_at)
+                    created_at: toEsDate(doc.created_at),
+                    updated_at: toEsDate(doc.updated_at)
                 }
             ];
         });
@@ -97,6 +93,10 @@ async function sync() {
         
         if (response.errors) {
             console.error('❌ 동기화 중 에러 발생');
+            // 상세 에러 확인용
+            response.items.forEach(item => {
+                if (item.index && item.index.error) console.error(item.index.error);
+            });
         } else {
             console.log(`✅ ${rows.length}개 데이터 동기화 완료!`);
         }
