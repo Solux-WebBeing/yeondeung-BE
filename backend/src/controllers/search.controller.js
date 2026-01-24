@@ -168,25 +168,37 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 // [정렬 기준] 한국 시간(KST) 오늘 범위 계산
 const getSortParams = () => {
     const now = new Date();
-    // 한국 시간 기준 현재 날짜 추출
-    const kstString = now.toLocaleString("en-US", { timeZone: "Asia/Seoul" });
-    const kstDate = new Date(kstString);
 
-    const y = kstDate.getFullYear();
-    const m = kstDate.getMonth();
-    const d = kstDate.getDate();
+    // 현재 UTC ms
+    const utcNow = now.getTime() + (now.getTimezoneOffset() * 60000);
+
+    // KST = UTC + 9시간
     const kstOffset = 9 * 60 * 60 * 1000;
+    const kstNowMs = utcNow + kstOffset;
+    const kstNow = new Date(kstNowMs);
 
-    // 한국 시간 00:00 ~ 23:59를 UTC Timestamp로 변환
-    const dayStart = Date.UTC(y, m, d, 0, 0, 0, 0) - kstOffset;
-    const dayEnd = Date.UTC(y, m, d, 23, 59, 59, 999) - kstOffset;
+    // KST 기준 오늘 00:00 / 23:59:59
+    const kstTodayStart = new Date(
+        kstNow.getFullYear(),
+        kstNow.getMonth(),
+        kstNow.getDate(),
+        0, 0, 0, 0
+    ).getTime();
+
+    const kstTodayEnd = new Date(
+        kstNow.getFullYear(),
+        kstNow.getMonth(),
+        kstNow.getDate(),
+        23, 59, 59, 999
+    ).getTime();
 
     return {
-        now: now.getTime(),
-        dayStart: dayStart,
-        dayEnd: dayEnd
+        now: utcNow,                              // 현재 시각 (UTC ms)
+        dayStart: kstTodayStart - kstOffset,      // KST 00:00 → UTC
+        dayEnd: kstTodayEnd - kstOffset           // KST 23:59 → UTC
     };
 };
+
 
 // [핵심 정렬 로직]
 const commonSort = [
@@ -196,28 +208,18 @@ const commonSort = [
             script: {
                 lang: "painless",
                 source: `
-                    if (doc['end_date'].size() == 0) return 2; // 상시 -> 마감 그룹(2)로 뺌 (필요시 1.5로 조정 가능)
+                    // end_date 없는 경우 → 상시 (그룹 2)
+                    if (doc['end_date'].size() == 0) return 2;
 
                     long end = doc['end_date'].value.toInstant().toEpochMilli();
-                    
-                    // [중요] 시간 설정 여부 확인 (필드가 없으면 false 처리)
-                    boolean isTimeSet = doc.containsKey('is_end_time_set') ? doc['is_end_time_set'].value : false;
 
-                    // 1. 마감 여부 판단 (그룹 2: 3순위)
-                    if (isTimeSet) {
-                        // 시간을 설정했으면, 현재 시간보다 이전일 때 마감
-                        if (end < params.now) return 2; 
-                    } else {
-                        // 시간을 설정 안 했으면(00:00), "오늘 00:00"보다 작아야 마감(즉, 어제 날짜여야 함)
-                        // 이렇게 해야 D-0 00:00인 글이 '마감'으로 안 가고 '오늘'로 살아남음
-                        if (end < params.dayStart) return 2;
-                    }
+                    // 1. 이미 마감된 글 → 맨 마지막 (그룹 3)
+                    if (end < params.now) return 3;
 
-                    // 2. 오늘 마감 판단 (그룹 0: 1순위)
-                    // 위에서 마감 안 된 애들 중, 마감 시간이 오늘 범위(23:59) 안쪽이면 오늘 마감
-                    if (end <= params.dayEnd) return 0;
+                    // 2. 오늘(KST) 마감 + 아직 안 지난 글 → 최우선 (그룹 0)
+                    if (end >= params.dayStart && end <= params.dayEnd) return 0;
 
-                    // 3. 미래 마감 (그룹 1: 2순위)
+                    // 3. 그 외 미래 마감 → 중간 (그룹 1)
                     return 1;
                 `,
                 params: getSortParams()
@@ -225,8 +227,13 @@ const commonSort = [
             order: "asc"
         }
     },
-    { "created_at": { "order": "desc" } } // 같은 그룹(0, 1) 안에서는 최신순 정렬
+
+    // 🔹 2순위: 마감 안 된 그룹끼리는 "생성 오래된 순"
+    {
+        "created_at": { "order": "asc" }
+    }
 ];
+
 
 /**
  * 1. 게시글 통합 검색

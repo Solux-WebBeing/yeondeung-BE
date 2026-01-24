@@ -9,26 +9,34 @@ const INDEX_NAME = 'boards';
 // 이전 코드(toISOString)는 서버가 UTC면 시간을 9시간 뒤로 밀어버리는 문제가 있었음
 const toEsDate = (dateInput) => {
     if (!dateInput) return null;
-    try {
-        const d = new Date(dateInput);
-        
-        // 날짜 객체에서 연, 월, 일, 시, 분, 초 추출 (서버 로컬 시간 기준 값)
-        const pad = (n) => n.toString().padStart(2, '0');
-        const y = d.getFullYear();
-        const m = pad(d.getMonth() + 1);
-        const day = pad(d.getDate());
-        const h = pad(d.getHours());
-        const min = pad(d.getMinutes());
-        const s = pad(d.getSeconds());
 
-        // 강제로 "+09:00" (KST) 정보를 붙여서 ISO 문자열 생성
-        // 예: DB에 "22:00"이 있다면 -> "2026-01-24T22:00:00+09:00" -> UTC 13:00으로 정확히 변환됨
-        const kstString = `${y}-${m}-${day}T${h}:${min}:${s}+09:00`;
-        return new Date(kstString).toISOString();
+    try {
+        // MySQL에서 Date 객체로 오든 문자열로 오든
+        // "YYYY-MM-DD HH:mm:ss" 형태의 KST 값으로 강제 변환
+
+        let dateStr;
+
+        if (dateInput instanceof Date) {
+            // Date 객체 → 로컬시간 문자열로 직접 추출 (타임존 무시)
+            const pad = (n) => n.toString().padStart(2, '0');
+            dateStr = `${dateInput.getFullYear()}-${pad(dateInput.getMonth() + 1)}-${pad(dateInput.getDate())} ` +
+                      `${pad(dateInput.getHours())}:${pad(dateInput.getMinutes())}:${pad(dateInput.getSeconds())}`;
+        } else {
+            // 문자열 그대로 사용
+            dateStr = dateInput;
+        }
+
+        // KST로 해석 강제
+        const kstIso = dateStr.replace(' ', 'T') + '+09:00';
+
+        // UTC ISO로 변환해서 ES에 저장
+        return new Date(kstIso).toISOString();
     } catch (e) {
+        console.error("Date Sync Parse Error:", e, dateInput);
         return null;
     }
 };
+
 
 async function sync() {
     let connection;
