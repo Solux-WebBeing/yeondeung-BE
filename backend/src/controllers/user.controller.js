@@ -857,7 +857,12 @@ exports.updateMailing = async (req, res) => {
 // 날짜, 지역, 태그, 응원 수 필드 추가
 exports.getIndividualActivities = async (req, res) => {
   const { id } = req.user;
+  // 페이지네이션 추가
+  const page = parseInt(req.query.page) || 1;
+  const limit = 4;
+  const offset = (page - 1) * limit;
   try {
+    // LIMIT와 OFFSET을 적용한 게시글 조회 쿼리
     const postSql = `
       SELECT 
         b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
@@ -865,9 +870,9 @@ exports.getIndividualActivities = async (req, res) => {
       FROM boards b 
       WHERE b.user_id = ? 
       ORDER BY b.created_at DESC 
-      LIMIT 4
+      LIMIT ? OFFSET ?
     `;
-    const [rows] = await pool.query(postSql, [id]);
+    const [rows] = await pool.query(postSql, [id, limit, offset]);
     
     const posts = rows.map(post => ({
       ...post,
