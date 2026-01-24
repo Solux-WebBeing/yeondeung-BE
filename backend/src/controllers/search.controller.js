@@ -188,74 +188,79 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 
 // [정렬 기준] 한국 시간(KST) 오늘 범위 계산
 const getSortParams = () => {
-    const now = new Date();
+    const now = Date.now(); // UTC 기준 ms (ES end_date와 동일 기준)
 
-    // 현재 UTC ms
-    const utcNow = now.getTime() + (now.getTimezoneOffset() * 60000);
+    // KST 기준 오늘 00:00 / 23:59:59 → 다시 UTC로 환산
+    const kstNow = new Date(now + 9 * 60 * 60 * 1000);
 
-    // KST = UTC + 9시간
-    const kstOffset = 9 * 60 * 60 * 1000;
-    const kstNowMs = utcNow + kstOffset;
-    const kstNow = new Date(kstNowMs);
-
-    // KST 기준 오늘 00:00 / 23:59:59
     const kstTodayStart = new Date(
         kstNow.getFullYear(),
         kstNow.getMonth(),
         kstNow.getDate(),
         0, 0, 0, 0
-    ).getTime();
+    ).getTime() - 9 * 60 * 60 * 1000;
 
     const kstTodayEnd = new Date(
         kstNow.getFullYear(),
         kstNow.getMonth(),
         kstNow.getDate(),
         23, 59, 59, 999
-    ).getTime();
+    ).getTime() - 9 * 60 * 60 * 1000;
 
     return {
-        // 🔥 KST 현재 시각을 UTC 기준으로 변환해서 사용
-        now: kstNowMs - kstOffset,
-
-        // KST 오늘 범위를 UTC 기준으로 변환
-        dayStart: kstTodayStart - kstOffset,
-        dayEnd: kstTodayEnd - kstOffset
+        now,              // UTC now
+        dayStart: kstTodayStart,
+        dayEnd: kstTodayEnd
     };
 };
 
 
 
+
 // [핵심 정렬 로직]
 const commonSort = [
-    {
-        _script: {
-            type: "number",
-            script: {
-                lang: "painless",
-                source: `
-                    if (doc['end_date'].size() == 0) return 2; // 상시
+  {
+    _script: {
+      type: "number",
+      script: {
+        lang: "painless",
+        source: `
+            if (doc['end_date'].size() == 0) return 20; // 상시
 
-                    long end = doc['end_date'].value.toInstant().toEpochMilli();
+            long end = doc['end_date'].value.toInstant().toEpochMilli();
 
-                    // 이미 마감
-                    if (end < params.now) return 3;
+            if (end < params.now) return 30;        // 마감
+            if (end >= params.dayStart && end <= params.dayEnd) return 0;  // 오늘
+            return 10;                              // 미래
+            `
+/*
+        source: `
+          if (doc['end_date'].size() == 0) return 2; // 상시
 
-                    // 오늘(KST) 마감 예정
-                    if (end >= params.dayStart && end <= params.dayEnd) return 0;
+          long end = doc['end_date'].value.toInstant().toEpochMilli();
 
-                    // 미래 마감
-                    return 1;
-                `,
-                params: getSortParams()
-            },
-            order: "asc"
-        }
-    },
+          // 이미 마감
+          if (end < params.now) return 3;
 
-    // 🔹 2순위: 각 그룹 안에서 "최신 등록순"
-    {
-        "created_at": { "order": "desc", "missing": "_last" }
+          // 오늘(KST) 마감
+          if (end >= params.dayStart && end <= params.dayEnd) return 0;
+
+          // 미래 마감
+          return 1;
+        `,*/,
+        params: getSortParams()
+      },
+      order: "asc"
     }
+  },
+  {
+    "end_date": { "order": "asc", "missing": "_last" }
+  },
+
+  // 🔹 2순위: 각 그룹 안에서 최신 등록순
+  {
+    "created_at": { "order": "desc", "missing": "_last" }
+  }
 ];
 
 
