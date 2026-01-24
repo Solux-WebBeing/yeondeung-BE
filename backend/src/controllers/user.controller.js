@@ -903,6 +903,7 @@ exports.getIndividualActivities = async (req, res) => {
 
     return success(res, '활동 조회 성공', { 
       written_posts: posts, 
+      cheer_count: cheers[0].count,
       total_count: total_count,
       total_pages: Math.ceil(total_count / limit),
       current_page: page
