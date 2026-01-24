@@ -15,21 +15,34 @@ async function validateDomain(url, participationType) {
     }
 
     const [allowedDomains] = await pool.query('SELECT * FROM allowed_domains');
-    const matchedDomain = allowedDomains.find(d => {
-      if (!matchWildcard(d.domain_pattern, url)) return false;
 
-      const allowedTypes = d.allowed_types.split(',').map(t => t.trim());
-      return allowedTypes.includes(participationType);
-    });
+    const domain = allowedDomains.find(d => matchWildcard(d.domain_pattern, url));
 
-    if (!matchedDomain) {
+    if (!domain) {
       return { allowed: false, message: '공식 청원/서명/탄원 링크만 등록할 수 있어요' };
+    }
+
+    const allowedTypes = domain.allowed_types.split(',').map(t => t.trim());
+
+    if (!allowedTypes.includes(participationType)) {
+      if (participationType === '청원') {
+        return {
+          allowed: false,
+          message: '청원은 공식 청원 사이트 링크만 등록할 수 있어요. 청원24/국회전자청원/국회입법예고 링크로 다시 등록해 주세요.'
+        };
+      } else {
+        // 서명 또는 탄원
+        return {
+          allowed: false,
+          message: '서명, 탄원은 구글폼(단축 링크 포함) 또는 빠띠 링크만 등록할 수 있어요.'
+        };
+      }
     }
 
     return {
       allowed: true,
       domain: {
-        site_name: matchedDomain.site_name // 크롤링 선택에 사용
+        site_name: domain.site_name
       }
     };
 

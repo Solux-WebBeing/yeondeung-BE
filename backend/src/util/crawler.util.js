@@ -94,10 +94,6 @@ async function crawlUrl(url, domainInfo = null) {
 
     let text = parts.join('\n');
 
-    if (!text || text.length < 10) {
-      return { success: false, error: '유효한 텍스트를 크롤링하지 못했습니다.' };
-    }
-
     if (text.length > MAX_TEXT_LENGTH) {
       text = text.substring(0, MAX_TEXT_LENGTH) + '...(이하 생략)';
     }
