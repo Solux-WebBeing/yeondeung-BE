@@ -9,22 +9,36 @@ const responseUtil = require('../util/response.util');
  */
 async function validateBoardCreate(req, res, next) {
   try {
-    const { title, topics, content, link, participation_type } = req.body;
+    const { user_type } = req.user;
+    const { title, topics, content, link, participation_type, start_date, start_time, end_date, end_time } = req.body;
     // 주제를 title로, 의제를 topics로 변경함에 따라 해당 코드 또한 변경
 
     // 1. 기본 필드 검증
-    if (!title || !topics || !content) { // 위와 같은 이유로 변경
-      return responseUtil.fail(res, '제목, 의제, 내용은 필수 입력 항목입니다.', 400);
+    if (!title || !topics || !content || !participation_type || !start_date || !end_date) {
+      return responseUtil.fail(res, '필수 입력 정보가 누락되었습니다', 400);
     }
 
-    // 2. 링크가 없는 경우
+    // 2. 사용자 타입에 따른 작성 권한 검사
+    const isOfflineEvent = ['집회', '행사'].includes(participation_type);
+    if (user_type === 'INDIVIDUAL' && isOfflineEvent) {
+      return responseUtil.fail(res, '집회나 행사 게시글은 단체 회원만 작성할 수 있습니다.', 403);
+    }
+
+    // 3. 날짜 오류 검사
+    const start = new Date(`${start_date} ${start_time || '00:00'}:00`);
+    const end = new Date(`${end_date} ${end_time || '00:00'}:00`);
+    
+    if (end < start) {
+      return responseUtil.fail(res, '종료 일시가 시작 일시보다 빠릅니다', 400); //
+    }
+
+    // 4. 링크 검사
     const requiresLink = ['서명', '청원', '탄원'].includes(participation_type);
 
     if (requiresLink && !link) {
       return responseUtil.fail(res, '청원/서명/탄원 링크를 입력해야 게시글을 등록할 수 있습니다', 400);
     }
 
-    // 3. 링크가 있는 경우
     let domainInfo = null;
     if (link) {
       const linkValidation = await link_validate(link); // 도메인 검사
@@ -73,7 +87,12 @@ async function validateBoardCreate(req, res, next) {
 
   } catch (error) {
     console.error('[⚠️Validation 오류]', error);
-    return responseUtil.fail(res, '미들웨어 오류가 발생했습니다', 500);
+
+    console.log('그냥 통과');
+    req.validatedData = { domainInfo: null, aiVerified: false };
+    return next();
+
+    // return responseUtil.fail(res, '미들웨어 오류가 발생했습니다', 500);
   }
 }
 

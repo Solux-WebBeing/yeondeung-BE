@@ -1,8 +1,8 @@
 const nodemailer = require('nodemailer');
 const path = require('path');
 
-// Base64 인코딩된 이미지 로드
-const EMAIL_ASSETS = require('../../email-assets-base64.json');
+// 이메일 이미지 파일 경로
+const EMAIL_ASSETS_PATH = path.join(__dirname, '../assets/email');
 
 // 1. Nodemailer Transporter 설정
 const transporter = nodemailer.createTransport({
@@ -207,7 +207,7 @@ const sendCustomEmail = async (toEmail, subject, textContent) => {
 };
 
 /**
- * 5. 주기적 메일 발송 - 관심 분야 미응원 게시글
+ * 5. 정기 메일 발송 - 관심 분야 미응원 게시글
  */
 const sendInterestPostEmail = async (toEmail, userName, posts) => {
   const mailOptions = {
@@ -215,18 +215,40 @@ const sendInterestPostEmail = async (toEmail, userName, posts) => {
     to: toEmail,
     subject: '[연등] 나의 관심 분야의 새로운 게시글',
     html: getInterestPostTemplate(userName, posts),
+    attachments: [
+      {
+        filename: 'rogo_short.png',
+        path: path.join(EMAIL_ASSETS_PATH, 'rogo_short.png'),
+        cid: 'rogo_short'
+      },
+      {
+        filename: 'rogo_long.png',
+        path: path.join(EMAIL_ASSETS_PATH, 'rogo_long.png'),
+        cid: 'rogo_long'
+      },
+      {
+        filename: '응원봉.png',
+        path: path.join(EMAIL_ASSETS_PATH, '응원봉.png'),
+        cid: 'cheer_icon'
+      },
+      {
+        filename: '단체인증뱃지.png',
+        path: path.join(EMAIL_ASSETS_PATH, '단체인증뱃지.png'),
+        cid: 'org_badge'
+      }
+    ]
   };
   try {
     await transporter.sendMail(mailOptions);
     console.log(`[Email Service] Interest posts email sent to: ${toEmail}`);
   } catch (error) {
     console.error(`[Email Service] Error sending interest posts email: ${toEmail}`, error);
-    throw new Error('관심 분야 게시글 이메일 발송에 실패했습니다.');
+    throw error;
   }
 };
 
 /**
- * 6. 주기적 메일 발송 - 인기 게시글
+ * 6. 정기 메일 발송 - 인기 게시글
  */
 const sendPopularPostEmail = async (toEmail, userName, posts) => {
   const mailOptions = {
@@ -234,6 +256,28 @@ const sendPopularPostEmail = async (toEmail, userName, posts) => {
     to: toEmail,
     subject: '[연등] 이번 주 인기 게시글',
     html: getPopularPostTemplate(userName, posts),
+    attachments: [
+      {
+        filename: 'rogo_short.png',
+        path: path.join(EMAIL_ASSETS_PATH, 'rogo_short.png'),
+        cid: 'rogo_short'
+      },
+      {
+        filename: 'rogo_long.png',
+        path: path.join(EMAIL_ASSETS_PATH, 'rogo_long.png'),
+        cid: 'rogo_long'
+      },
+      {
+        filename: '응원봉.png',
+        path: path.join(EMAIL_ASSETS_PATH, '응원봉.png'),
+        cid: 'cheer_icon'
+      },
+      {
+        filename: '단체인증뱃지.png',
+        path: path.join(EMAIL_ASSETS_PATH, '단체인증뱃지.png'),
+        cid: 'org_badge'
+      }
+    ]
   };
 
   try {
@@ -241,7 +285,7 @@ const sendPopularPostEmail = async (toEmail, userName, posts) => {
     console.log(`[Email Service] Popular posts email sent to: ${toEmail}`);
   } catch (error) {
     console.error(`[Email Service] Error sending popular posts email: ${toEmail}`, error);
-    throw new Error('인기 게시글 이메일 발송에 실패했습니다.');
+    throw error;
   }
 };
 
@@ -269,6 +313,115 @@ const truncateHtmlContent = (html, maxLength = 600) => {
 };
 
 /**
+ * 공통 이메일 스타일
+ */
+const getEmailStyles = () => `
+  /* 이메일 클라이언트 공통 리셋 */
+  body { margin: 0 !important; padding: 0 !important; width: 100% !important; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; display: block; }
+  table { border-collapse: collapse !important; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+
+  /* 모바일 반응형 */
+  @media only screen and (max-width: 600px) {
+    .content-padding { padding: 12px !important; }
+    .logo-img { width: 80px !important; }
+    .title-text { font-size: 14px !important; }
+    .button-cell { padding: 10px 16px !important; }
+    .button-text { font-size: 11px !important; }
+    .outline-button-cell { padding: 8px 14px !important; }
+  }
+`;
+
+/**
+ * 이메일 헤더 (로고 + 날짜)
+ */
+const getEmailHeader = (year, month, day) => `
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td style="padding-bottom: 16px;">
+        <img class="logo-img" src="cid:rogo_short" alt="연등" width="90" style="display: block; width: 90px; height: auto;" />
+      </td>
+      <td style="text-align: right; vertical-align: bottom; padding-bottom: 16px;">
+        <span style="color: #797979; font-size: 12px; font-weight: 300; line-height: 1.5;">${year}년 ${month}월 ${day}일</span>
+      </td>
+    </tr>
+  </table>
+`;
+
+/**
+ * 게시글 요약 카드
+ */
+const getPostSummaryCard = (post, startDate, endDate) => `
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 10px; border: 1px solid #E1E1E1; border-radius: 8px;">
+    <tr>
+      <td style="padding: 14px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+          <tr>
+            <td style="padding-bottom: 10px;">
+              <span class="title-text" style="color: #2E2E2E; font-size: 15px; font-weight: 700; line-height: 1.4; word-break: keep-all;">${post.title}</span>
+              <img src="cid:org_badge" alt="인증뱃지" width="20" height="20" style="display: inline-block; width: 20px; height: 20px; vertical-align: text-bottom; margin-left: 6px;" />
+            </td>
+          </tr>
+        </table>
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+          <tr>
+            <td style="color: #797979; font-size: 11px; line-height: 1.7;">
+              <div style="margin-bottom: 4px;"><span style="font-weight: 500;">참여 방식:</span> ${post.participation_type}</div>
+              ${post.organization_name ? `<div style="margin-bottom: 4px;"><span style="font-weight: 500;">주최:</span> ${post.organization_type === 'ORGANIZATION' ? '단체' : '개인'} | "${post.organization_name}"</div>` : ''}
+              ${startDate && endDate ? `<div style="margin-bottom: 4px;"><span style="font-weight: 500;">진행 일자:</span> ${startDate} ~ ${endDate}</div>` : ''}
+              ${post.region && post.district ? `<div style="margin-bottom: 4px;"><span style="font-weight: 500;">장소:</span> ${post.region} > ${post.district}</div>` : ''}
+              <div style="margin-bottom: 4px;"><span style="font-weight: 500;">의제:</span> ${post.topics}</div>
+              ${post.link ? `<div style="word-break: break-all;"><span style="font-weight: 500;">참여 링크:</span> <a href="${post.link}" style="color: #FF7972; text-decoration: underline;">${post.link}</a></div>` : ''}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+`;
+
+/**
+ * 이메일 푸터
+ */
+const getEmailFooter = () => `
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td style="padding: 20px 0;">
+        <div style="height: 1px; background-color: #C3C3C3;"></div>
+      </td>
+    </tr>
+  </table>
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td align="center" style="padding-bottom: 8px;">
+        <img src="cid:rogo_long" alt="연등 로고" width="100" style="width: 100px; height: auto; display: block; margin: 0 auto;" />
+      </td>
+    </tr>
+  </table>
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td align="center" style="color: #797979; font-size: 11px; line-height: 1.5; padding-bottom: 4px;">
+        각자의 불빛을 모아 거대한 행동의 물결로
+      </td>
+    </tr>
+    <tr>
+      <td align="center" style="color: #797979; font-size: 10px; padding-bottom: 12px;">
+        yeondeung.official@gmail.com
+      </td>
+    </tr>
+  </table>
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td align="center" style="color: #797979; font-size: 10px; padding-bottom: 8px;">
+        <a href="#" style="color: #797979; text-decoration: underline;">메일링 설정 변경</a>
+        <span style="margin: 0 5px;">|</span>
+        <a href="#" style="color: #797979; text-decoration: underline;">수신 거부</a>
+      </td>
+    </tr>
+  </table>
+`;
+
+/**
  * 관심 분야 미응원 게시글 이메일 템플릿
  */
 const getInterestPostTemplate = (userName, posts) => {
@@ -276,104 +429,78 @@ const getInterestPostTemplate = (userName, posts) => {
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, '0');
   const day = String(today.getDate()).padStart(2, '0');
-
-  const postsHtml = posts.map(post => {
-    const startDate = post.start_date ? new Date(post.start_date).toLocaleDateString('ko-KR') : '';
-    const endDate = post.end_date ? new Date(post.end_date).toLocaleDateString('ko-KR') : '';
-    const truncatedContent = truncateHtmlContent(post.content, 600);
-
-    return `
-      <!-- 요약 카드 -->
-      <div style="max-width: 976px; margin: 0 auto 8px; overflow: hidden; border-radius: 10px; outline: 1px #E1E1E1 solid; outline-offset: -1px; padding: 20px; box-sizing: border-box;">
-        <!-- 제목 -->
-        <div style="color: #2E2E2E; font-size: 24px; font-family: Inter, sans-serif; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <span style="word-break: keep-all;">${post.title}</span>
-          <img style="width: 32px; height: 32px;" src="${EMAIL_ASSETS['단체인증뱃지.png']}" alt="단체인증뱃지" />
-        </div>
-
-        <!-- 요약 정보 카드 -->
-        <div style="display: flex; flex-direction: column; gap: 12px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300;">
-          <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
-            <div style="flex: 1 1 200px;"><span style="font-weight: 400;">참여 방식:</span> ${post.participation_type}</div>
-            ${startDate && endDate ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">진행 일자:</span> ${startDate} ~ ${endDate}</div>` : ''}
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
-            <div style="flex: 1 1 200px;"><span style="font-weight: 400;">의제:</span> ${post.topics}</div>
-            ${post.region && post.district ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">장소:</span> ${post.region} > ${post.district}</div>` : ''}
-          </div>
-          ${post.organization_name ? `<div><span style="font-weight: 400;">주최:</span> ${post.organization_name}</div>` : ''}
-          ${post.link ? `<div style="word-break: break-all;"><span style="font-weight: 400;">참여 링크:</span> <a href="${post.link}" style="color: #797979; text-decoration: underline;">${post.link}</a></div>` : ''}
-        </div>
-      </div>
-
-      <!-- 본문 -->
-      <div style="max-width: 976px; margin: 0 auto 32px; overflow: hidden; border-radius: 8px; outline: 1px #E1E1E1 solid; outline-offset: -1px; padding: 20px; font-family: Pretendard, sans-serif; line-height: 1.6; color: #2E2E2E; box-sizing: border-box;">
-        ${truncatedContent}
-      </div>
-
-      <div style="text-align: center; margin: 32px 0;">
-        <div style="color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; margin-bottom: 16px;">
-          이 목소리에 힘을 보태고 싶다면, 아래 버튼을 눌러 응원봉을 밝혀주세요.
-        </div>
-        <a href="${post.link || '#'}" style="display: inline-flex; padding: 12px 24px; background: #FF7972; border-radius: 8px; align-items: center; gap: 12px; text-decoration: none;">
-          <img style="width: 48px; height: 48px;" src="${EMAIL_ASSETS['응원봉.png']}" alt="응원봉" />
-          <span style="color: #F8F8F8; font-size: 18px; font-family: Inter, sans-serif; font-weight: 600;">이 소식에 응원봉 밝히기</span>
-        </a>
-      </div>
-    `;
-  }).join('');
+  const post = posts[0];
+  const startDate = post.start_date ? new Date(post.start_date).toLocaleDateString('ko-KR') : '';
+  const endDate = post.end_date ? new Date(post.end_date).toLocaleDateString('ko-KR') : '';
+  const truncatedContent = truncateHtmlContent(post.content, 600);
 
   return `
     <!DOCTYPE html>
-    <html>
+    <html lang="ko">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        @media only screen and (max-width: 600px) {
-          .container { width: 100% !important; max-width: 100% !important; }
-          .content { padding: 16px !important; }
-          .logo { width: 120px !important; margin: 30px 0 0 16px !important; }
-        }
-      </style>
+      <meta http-equiv="X-UA-Compatible" content="IE=edge">
+      <style>${getEmailStyles()}</style>
     </head>
-    <body style="margin: 0; padding: 0; background: #f5f5f5;">
-      <div class="container" style="max-width: 1024px; margin: 0 auto; background: white; box-sizing: border-box;">
-        <img class="logo" style="width: 176px; height: auto; margin: 61px 0 0 23px;" src="${EMAIL_ASSETS['rogo_short.png']}" alt="연등 로고" />
-
-        <div style="text-align: right; padding-right: 24px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300; margin-top: -30px;">
-          ${year}년 ${month}월 ${day}일
-        </div>
-
-        <div class="content" style="margin: 30px 24px; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; line-height: 1.6;">
-          ${userName}님이 관심 있게 지켜보시는 ${posts[0]?.topics} 분야의 소식입니다.<br/>
-          바쁜 일상 속에서 놓치지 않도록, 연등이 전해드립니다.
-        </div>
-
-      ${postsHtml}
-
-      <!-- 구분선 -->
-      <div style="width: 972px; height: 1px; margin: 48px auto; background: #C3C3C3;"></div>
-
-      <!-- 하단 로고 -->
-      <div style="text-align: center; margin-top: 32px;">
-        <img style="width: 217px; height: auto;" src="${EMAIL_ASSETS['rogo_long.png']}" alt="연등 로고" />
-      </div>
-
-      <!-- 하단 문구 -->
-      <div style="text-align: center; color: #797979; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; margin-top: 16px;">
-        각자의 불빛을 모아 거대한 행동의 물결로
-      </div>
-      <div style="text-align: center; color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; margin-top: 8px;">
-        yeondeung.official@gmail.com
-      </div>
-
-      <div style="text-align: center; margin: 16px 0 32px; display: flex; justify-content: center; align-items: center; gap: 8px;">
-        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">메일링 설정 변경</a>
-        <span style="color: #797979;">|</span>
-        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">수신 거부</a>
-      </div>
-      </div>
+    <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', sans-serif;">
+      
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #ffffff; table-layout: fixed;">
+        <tr>
+          <td align="center" style="padding: 0;">
+            <center style="width: 100%;">
+            
+            <table role="presentation" class="container" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 540px; margin: 0 auto; background-color: #ffffff; border-radius: 8px;">
+              <tr>
+                <td class="content-padding" style="padding: 20px;">
+                  ${getEmailHeader(year, month, day)}
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td style="padding-bottom: 16px; color: #2E2E2E; font-size: 13px; line-height: 1.6;">
+                        ${userName}님이 관심 있게 지켜보시는 <strong>${post.topics}</strong> 분야의 소식입니다.<br/>
+                        바쁜 일상 속에서 놓치지 않도록, 연등이 전해드립니다.
+                      </td>
+                    </tr>
+                  </table>
+                  ${getPostSummaryCard(post, startDate, endDate)}
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 20px; border: 1px solid #E1E1E1; border-radius: 6px;">
+                    <tr>
+                      <td style="padding: 14px; color: #2E2E2E; font-size: 12px; line-height: 1.6;">
+                        ${truncatedContent}
+                      </td>
+                    </tr>
+                  </table>
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td style="text-align: center; padding: 16px 0 12px; color: #2E2E2E; font-size: 12px; line-height: 1.5;">
+                        이 목소리에 힘을 보태고 싶다면, 아래 버튼을 눌러 응원봉을 밝혀주세요.
+                      </td>
+                    </tr>
+                  </table>
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td align="center" style="padding-bottom: 24px;">
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;"> <tr>
+                            <td class="button-cell" align="center" style="background-color: #FF7972; border-radius: 5px; padding: 10px 18px;">
+                              <a href="${post.link || '#'}" style="text-decoration: none; display: inline-block; line-height: 1;">
+                                <img src="cid:cheer_icon" alt="응원봉" width="20" height="20" style="display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin-right: 6px;" />
+                                <span class="button-text" style="color: #FFFFFF; font-size: 12px; font-weight: 600; vertical-align: middle; white-space: nowrap;">이 소식에 응원봉 밝히기</span>
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                  ${getEmailFooter()}
+                </td>
+              </tr>
+            </table>
+            
+            </center>
+          </td>
+        </tr>
+      </table>
     </body>
     </html>
   `;
@@ -394,111 +521,95 @@ const getPopularPostTemplate = (userName, posts) => {
 
   return `
     <!DOCTYPE html>
-    <html>
+    <html lang="ko">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        @media only screen and (max-width: 600px) {
-          .container { width: 100% !important; max-width: 100% !important; }
-          .content { padding: 16px !important; }
-          .logo { width: 120px !important; margin: 30px 0 0 16px !important; }
-        }
-      </style>
+      <meta http-equiv="X-UA-Compatible" content="IE=edge">
+      <style>${getEmailStyles()}</style>
     </head>
-    <body style="margin: 0; padding: 0; background: #f5f5f5;">
-      <div class="container" style="max-width: 1024px; margin: 0 auto; background: white; box-sizing: border-box;">
-        <!-- 로고 -->
-        <img class="logo" style="width: 176px; height: auto; margin: 60px 0 0 24px;" src="${EMAIL_ASSETS['rogo_short.png']}" alt="연등 로고" />
+    <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', sans-serif;">
+      
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #ffffff; table-layout: fixed;">
+        <tr>
+          <td align="center" style="padding: 0;">
+            <center style="width: 100%;">
 
-        <!-- 날짜 -->
-        <div style="text-align: right; padding-right: 24px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300; margin-top: -30px;">
-          ${year}년 ${month}월 ${day}일
-        </div>
+            <table role="presentation" class="container" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 540px; margin: 0 auto; background-color: #ffffff; border-radius: 8px;">
+              <tr>
+                <td class="content-padding" style="padding: 20px;">
+                  ${getEmailHeader(year, month, day)}
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td style="padding-bottom: 16px; color: #2E2E2E; font-size: 13px; line-height: 1.6;">
+                        이번 주, 연등에서 가장 많은 분이 마음을 모아주신 소식입니다.<br/>
+                        <strong>${userName}</strong>님께도 이 연대의 흐름을 전해드립니다.
+                      </td>
+                    </tr>
+                  </table>
+                  ${getPostSummaryCard(post, startDate, endDate)}
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 20px; border: 1px solid #E1E1E1; border-radius: 6px;">
+                    <tr>
+                      <td style="padding: 14px; color: #2E2E2E; font-size: 12px; line-height: 1.6;">
+                        ${truncatedContent}
+                      </td>
+                    </tr>
+                  </table>
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td style="text-align: center; padding: 16px 0 12px; color: #2E2E2E; font-size: 12px; line-height: 1.6;">
+                        현재 <strong style="color: #FF7972; font-weight: 700;">${post.cheer_count || 0}명</strong>이 함께 응원봉을 밝히고 있어요!<br/>
+                        ${userName}님의 마음도 함께 더해진다면 큰 변화가 시작될 거예요.
+                      </td>
+                    </tr>
+                  </table>
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td align="center" style="padding-bottom: 24px;">
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                          <tr>
+                            <td class="button-cell" align="center" style="background-color: #FF7972; border-radius: 5px; padding: 10px 18px;">
+                              <a href="${post.link || '#'}" style="text-decoration: none; display: inline-block; line-height: 1;">
+                                <img src="cid:cheer_icon" alt="응원봉" width="20" height="20" style="display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin-right: 6px;" />
+                                <span class="button-text" style="color: #FFFFFF; font-size: 12px; font-weight: 600; vertical-align: middle; white-space: nowrap;">이 소식에 응원봉 밝히기</span>
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td style="text-align: center; padding: 16px 0 8px; color: #2E2E2E; font-size: 12px; line-height: 1.5;">
+                        이 외에도 다른 연대 소식이 궁금하다면?
+                      </td>
+                    </tr>
+                  </table>
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                      <td align="center" style="padding-bottom: 20px;">
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                          <tr>
+                            <td class="outline-button-cell" align="center" style="border: 1px solid #FF7972; border-radius: 5px; padding: 8px 16px;">
+                              <a href="#" style="text-decoration: none; display: inline-block; line-height: 1;">
+                                <span style="color: #FF7972; font-size: 12px; font-weight: 600; white-space: nowrap;">더 많은 연대 살펴보기</span>
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                  ${getEmailFooter()}
+                </td>
+              </tr>
+            </table>
 
-        <!-- 상단 설명 -->
-        <div class="content" style="margin: 33px 24px 0; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; line-height: 1.6;">
-          이번 주, 연등에서 가장 많은 분이 마음을 모아주신 소식입니다.<br/>
-          ${userName}님께도 이 연대의 흐름을 전해드립니다.
-        </div>
-
-        <!-- 요약 카드 -->
-        <div style="max-width: 976px; margin: 8px auto 0; overflow: hidden; border-radius: 10px; border: 1px solid #E1E1E1; padding: 20px; box-sizing: border-box;">
-          <!-- 제목 -->
-          <div style="color: #2E2E2E; font-size: 24px; font-family: Inter, sans-serif; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            <span style="word-break: keep-all;">${post.title}</span>
-            <img style="width: 32px; height: 32px;" src="${EMAIL_ASSETS['단체인증뱃지.png']}" alt="단체인증뱃지" />
-          </div>
-
-          <!-- 요약 정보 카드 -->
-          <div style="display: flex; flex-direction: column; gap: 12px; color: #797979; font-size: 16px; font-family: Inter, sans-serif; font-weight: 300;">
-            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
-              <div style="flex: 1 1 200px;"><span style="font-weight: 400;">참여 방식:</span> ${post.participation_type}</div>
-              ${startDate && endDate ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">진행 일자:</span> ${startDate} ~ ${endDate}</div>` : ''}
-            </div>
-            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
-              <div style="flex: 1 1 200px;"><span style="font-weight: 400;">의제:</span> ${post.topics}</div>
-              ${post.region && post.district ? `<div style="flex: 1 1 200px;"><span style="font-weight: 400;">장소:</span> ${post.region} > ${post.district}</div>` : ''}
-            </div>
-            ${post.organization_name ? `<div><span style="font-weight: 400;">주최:</span> ${post.organization_type} | "${post.organization_name}"</div>` : ''}
-            ${post.link ? `<div style="word-break: break-all;"><span style="font-weight: 400;">참여 링크:</span> <a href="${post.link}" style="color: #797979; text-decoration: underline;">${post.link}</a></div>` : ''}
-          </div>
-        </div>
-
-        <!-- 본문 -->
-        <div style="max-width: 976px; margin: 8px auto 0; overflow: hidden; border-radius: 8px; border: 1px solid #E1E1E1; padding: 20px; font-family: Pretendard, sans-serif; line-height: 1.6; color: #2E2E2E; box-sizing: border-box;">
-          ${truncatedContent}
-        </div>
-
-        <!-- 응원봉 안내 -->
-        <div style="text-align: center; margin: 32px auto 0; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400;">
-          현재 <span style="font-weight: 700;">${post.cheer_count || 0}명</span>이 함께 응원봉을 밝히고 있어요!<br/>
-          ${userName}님의 마음도 함께 더해진다면 큰 변화가 시작될 거예요.
-        </div>
-
-        <!-- 응원봉 버튼 -->
-        <div style="text-align: center; margin: 16px auto 0;">
-          <a href="${post.link || '#'}" style="display: inline-flex; padding: 12px 24px; background: #FF7972; border-radius: 8px; align-items: center; gap: 12px; text-decoration: none;">
-            <img style="width: 48px; height: 48px;" src="${EMAIL_ASSETS['응원봉.png']}" alt="응원봉" />
-            <span style="color: #F8F8F8; font-size: 18px; font-family: Inter, sans-serif; font-weight: 600;">이 소식에 응원봉 밝히기</span>
-          </a>
-        </div>
-
-      <!-- 더 많은 연대 안내 -->
-      <div style="text-align: center; margin: 48px auto 0; color: #2E2E2E; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400;">
-        이 외에도 다른 연대 소식이 궁금하다면?
-      </div>
-
-      <!-- 더 많은 연대 버튼 -->
-      <div style="text-align: center; margin: 12px auto 0;">
-        <a href="#" style="display: inline-flex; padding: 16px 12px; border: 1px solid #FF7972; border-radius: 8px; align-items: center; gap: 4px; text-decoration: none;">
-          <span style="color: #FF7972; font-size: 18px; font-family: Inter, sans-serif; font-weight: 600;">더 많은 연대 살펴보기</span>
-        </a>
-      </div>
-
-      <!-- 구분선 -->
-      <div style="width: 972px; height: 1px; margin: 48px auto; background: #C3C3C3;"></div>
-
-      <!-- 하단 로고 -->
-      <div style="text-align: center; margin-top: 32px;">
-        <img style="width: 217px; height: auto;" src="${EMAIL_ASSETS['rogo_long.png']}" alt="연등 로고" />
-      </div>
-
-      <!-- 하단 문구 -->
-      <div style="text-align: center; color: #797979; font-size: 16px; font-family: Pretendard, sans-serif; font-weight: 400; margin-top: 16px;">
-        각자의 불빛을 모아 거대한 행동의 물결로
-      </div>
-      <div style="text-align: center; color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; margin-top: 8px;">
-        yeondeung.official@gmail.com
-      </div>
-
-      <!-- 푸터 링크 -->
-      <div style="text-align: center; margin: 16px auto 32px; display: flex; justify-content: center; align-items: center; gap: 8px;">
-        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">메일링 설정 변경</a>
-        <span style="color: #797979;">|</span>
-        <a href="#" style="color: #797979; font-size: 14px; font-family: Inter, sans-serif; font-weight: 300; text-decoration: underline;">수신 거부</a>
-      </div>
-      </div>
+            </center>
+          </td>
+        </tr>
+      </table>
     </body>
     </html>
   `;
