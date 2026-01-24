@@ -167,20 +167,35 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             : 0; // 없으면 0명 (단, 기획 의도에 따라 totalCount로 대체할 수도 있음)
 
         // D-Day 계산
+        // [수정] D-Day 및 마감 상태 계산
         let dDay = "상시";
         let isTodayEnd = false;
+
         if (post.end_date) {
-            const endDate = new Date(post.end_date);
-            const endDateCompare = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
-            const diffDays = Math.ceil((endDateCompare - todayCompare) / (1000 * 60 * 60 * 24));
+            const now = new Date(); // 현재 시점 (KST/UTC 상관없이 절대 비교용)
+            const endDate = new Date(post.end_date); // DB에서 가져온 마감 시점
             
-            if (diffDays === 0) {
-                dDay = "D-0";
-                isTodayEnd = true;
-            } else if (diffDays < 0) {
+            // 1. 시간이 1초라도 지났는지 확인 (가장 중요)
+            const isPast = endDate < now; 
+
+            if (isPast) {
                 dDay = "마감";
+                isTodayEnd = false; // 이미 지났으므로 '오늘 종료' 배지 해제
             } else {
-                dDay = `D-${diffDays}`;
+                // 2. 아직 안 지났다면 날짜 차이 계산
+                // 시간 정보를 00:00:00으로 맞춘 순수 '날짜' 비교용
+                const todayDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+                
+                const diffDays = Math.ceil((endDateOnly - todayDateOnly) / (1000 * 60 * 60 * 24));
+
+                if (diffDays === 0) {
+                    dDay = "D-0";
+                    isTodayEnd = true; // 오늘 마감 예정
+                } else {
+                    dDay = `D-${diffDays}`;
+                    isTodayEnd = false;
+                }
             }
         }
 
@@ -208,18 +223,20 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             id: post.id,
             title: post.title,
             thumbnail: imageMap[post.id] || "none",
-            
-            // 이제 topics는 배열로 내려갑니다 (프론트에서 처리 용이)
             topics: currentTopics, 
             
             location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
             region: post.region || "온라인",
             district: post.district || "",
-            ddateDisplay: (post.start_date && post.end_date) 
+
+            // 1. UI용 전체 기간 표시 필드 (오타 수정: dateDisplay)
+            dateDisplay: (post.start_date && post.end_date) 
                 ? `${formatForUI(post.start_date, post.is_start_time_set)} ~ ${formatForUI(post.end_date, post.is_end_time_set)}` 
                 : "상시 진행",
-            start_date: post.start_date,
-            end_date: post.end_date,
+
+            // 2. [핵심 수정] 원본 ISO 문자열 대신 가공된 문자열을 내려줌
+            start_date: formatForUI(post.start_date, post.is_start_time_set),
+            end_date: formatForUI(post.end_date, post.is_end_time_set),
             
             cheerCount: totalCount,
             is_cheered: userCheerSet.has(post.id), 
@@ -228,8 +245,6 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             dDay,
             isTodayEnd, 
             
-            // [최종 메시지]
-            // 예: "여성 의제에 관심이 있는 5명이 연대합니다!"
             interestMessage: `${displayTopic} 의제에 관심이 있는 ${specificInterestCount}명이 연대합니다!`,
             interestTopic: displayTopic,
             interestCounts: specificInterestCount
