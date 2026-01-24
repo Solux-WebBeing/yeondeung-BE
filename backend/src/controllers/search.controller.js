@@ -225,16 +225,6 @@ const commonSort = [
       script: {
         lang: "painless",
         source: `
-            if (doc['end_date'].size() == 0) return 20; // 상시
-
-            long end = doc['end_date'].value.toInstant().toEpochMilli();
-
-            if (end < params.now) return 30;        // 마감
-            if (end >= params.dayStart && end <= params.dayEnd) return 0;  // 오늘
-            return 10;                              // 미래
-            `
-/*
-        source: `
           if (doc['end_date'].size() == 0) return 2; // 상시
 
           long end = doc['end_date'].value.toInstant().toEpochMilli();
@@ -247,7 +237,7 @@ const commonSort = [
 
           // 미래 마감
           return 1;
-        `,*/,
+        `,
         params: getSortParams()
       },
       order: "asc"
