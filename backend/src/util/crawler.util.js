@@ -9,6 +9,7 @@ async function fetchHTML(url) {
     },
     timeout: 10000
   });
+
   return response.data;
 }
 
@@ -96,8 +97,6 @@ async function crawlUrl(url, domainInfo = null) {
     return { success: true, text };
 
   } catch (error) {
-    console.error('크롤링 오류:', error);
-
     if (error.code === 'ECONNABORTED') {
       return { success: false, error: '크롤링 시간이 초과되었습니다.' };
     }
