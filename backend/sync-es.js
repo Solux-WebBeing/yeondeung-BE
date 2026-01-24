@@ -5,10 +5,29 @@ require('dotenv').config({ path: '../.env' });
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 const INDEX_NAME = 'boards';
 
-// [수정] ISO 8601 형식으로 변환하여 타임존 오차 및 파싱 에러 방지
-const toEsDate = (date) => {
-    if (!date) return null;
-    return new Date(date).toISOString(); 
+// [핵심 수정] MySQL의 날짜를 무조건 한국 시간(+09:00)으로 해석해서 변환
+// 이전 코드(toISOString)는 서버가 UTC면 시간을 9시간 뒤로 밀어버리는 문제가 있었음
+const toEsDate = (dateInput) => {
+    if (!dateInput) return null;
+    try {
+        const d = new Date(dateInput);
+        
+        // 날짜 객체에서 연, 월, 일, 시, 분, 초 추출 (서버 로컬 시간 기준 값)
+        const pad = (n) => n.toString().padStart(2, '0');
+        const y = d.getFullYear();
+        const m = pad(d.getMonth() + 1);
+        const day = pad(d.getDate());
+        const h = pad(d.getHours());
+        const min = pad(d.getMinutes());
+        const s = pad(d.getSeconds());
+
+        // 강제로 "+09:00" (KST) 정보를 붙여서 ISO 문자열 생성
+        // 예: DB에 "22:00"이 있다면 -> "2026-01-24T22:00:00+09:00" -> UTC 13:00으로 정확히 변환됨
+        const kstString = `${y}-${m}-${day}T${h}:${min}:${s}+09:00`;
+        return new Date(kstString).toISOString();
+    } catch (e) {
+        return null;
+    }
 };
 
 async function sync() {
@@ -54,7 +73,6 @@ async function sync() {
                 }
                 suggestSet.add(doc.title.trim());
             }
-
             topicArray.forEach(t => suggestSet.add(t));
 
             return [
@@ -77,7 +95,7 @@ async function sync() {
                         input: Array.from(suggestSet).filter(Boolean),
                         weight: 10
                     },
-                    // [수정] 모든 날짜 필드를 ISO 표준으로 변경
+                    // [수정된 함수 적용] 9시간 오차를 바로잡음
                     start_date: toEsDate(doc.start_date),
                     end_date: toEsDate(doc.end_date),
                     is_start_time_set: !!doc.is_start_time_set,
@@ -93,7 +111,6 @@ async function sync() {
         
         if (response.errors) {
             console.error('❌ 동기화 중 에러 발생');
-            // 상세 에러 확인용
             response.items.forEach(item => {
                 if (item.index && item.index.error) console.error(item.index.error);
             });
