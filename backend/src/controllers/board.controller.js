@@ -186,7 +186,7 @@ exports.createPost = async (req, res) => {
         }
 
         // 5. 최종적으로 DB에 매핑 정보 삽입
-        await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
+        // await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
 
         // 4. 최종 저장
         if (topicValues.length > 0) {
