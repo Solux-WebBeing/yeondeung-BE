@@ -4,7 +4,7 @@ const validator = require('validator');
 /**
  * 링크(도메인) 검사
  */
-async function validateDomain(url) {
+async function validateDomain(url, participationType) {
   try {
     if (!url || typeof url !== 'string') {
       return { allowed: false, message: '청원/서명/탄원 링크를 입력해야 게시글을 등록할 수 있습니다.' };
@@ -15,7 +15,12 @@ async function validateDomain(url) {
     }
 
     const [allowedDomains] = await pool.query('SELECT * FROM allowed_domains');
-    const matchedDomain = allowedDomains.find(d => matchWildcard(d.domain_pattern, url));
+    const matchedDomain = allowedDomains.find(d => {
+      if (!matchWildcard(d.domain_pattern, url)) return false;
+
+      const allowedTypes = d.allowed_types.split(',').map(t => t.trim());
+      return allowedTypes.includes(participationType);
+    });
 
     if (!matchedDomain) {
       return { allowed: false, message: '공식 청원/서명/탄원 링크만 등록할 수 있어요' };
@@ -69,9 +74,9 @@ async function checkDuplicateLink(link) {
 /**
  * 전체 링크 검사
  */
-async function link_validate(link) {
+async function link_validate(link, participationType) {
   // 도메인 패턴 검사
-  const domainResult = await validateDomain(link);
+  const domainResult = await validateDomain(link, participationType);
 
   if (!domainResult.allowed) {
     return {
