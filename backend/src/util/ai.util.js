@@ -1,52 +1,21 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const OpenAI = require('openai');
 
-const ai = new GoogleGenerativeAI(process.env.OPENAI_API_KEY);
+const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
-// 모델 우선순위
-const MODEL_PRIORITY = [
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-
-];
-
-let currentModelIndex = 0;
-
-function getCurrentModel() {
-  return MODEL_PRIORITY[currentModelIndex];
-}
-
-function switchToNextModel() {
-  if (currentModelIndex < MODEL_PRIORITY.length - 1) {
-    currentModelIndex++;
-    console.log(`[AI 모델 전환]: ${MODEL_PRIORITY[currentModelIndex - 1]} → ${getCurrentModel()}`);
-    return true;
-  }
-  console.log('[🚨AI 모든 모델 할당량 소진]');
-  return false;
-}
+const MODEL = 'gpt-4.1-nano';
 
 async function generateWithFallback(prompt) {
-  let lastError = null;
-
-  while (currentModelIndex < MODEL_PRIORITY.length) {
-    try {
-      const model = ai.getGenerativeModel({ model: getCurrentModel() });
-      console.log(`[AI 사용 모델]: ${getCurrentModel()}`);
-      const result = await model.generateContent(prompt);
-      return result;
-    } catch (error) {
-      lastError = error;
-      console.log(`[AI] ${getCurrentModel()} 오류:`, error.message);
-
-      if (!switchToNextModel()) {
-        throw new Error('AI 검증 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-      }
-    }
+  try {
+    const response = await openai.responses.create({
+      model: MODEL,
+      input: prompt,
+      store: false,
+    });
+    return response.output_text;
+  } catch (error) {
+    console.log(`[AI 오류]:`, error.message);
+    throw new Error('AI 검증 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
   }
-  throw lastError || new Error('AI 모델 호출 실패');
 }
 
 /**
@@ -72,9 +41,7 @@ async function verifyTitleContentMatch(title, content) {
 
     반드시 위 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.`;
 
-    const result = await generateWithFallback(prompt);
-    const response = result.response;
-    const text = response.text();
+    const text = await generateWithFallback(prompt);
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -143,9 +110,7 @@ async function verifyLinkContent(title, content, crawledText) {
 
     반드시 위 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.`;
 
-    const result = await generateWithFallback(prompt);
-    const response = result.response;
-    const text = response.text();
+    const text = await generateWithFallback(prompt);
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -214,9 +179,7 @@ async function verifyHarmfulContent(title, content, crawledText) {
     반드시 위 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.
 `;
 
-    const result = await generateWithFallback(prompt);
-    const response = result.response;
-    const text = response.text();
+    const text = await generateWithFallback(prompt);
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

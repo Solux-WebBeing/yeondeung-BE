@@ -9,6 +9,7 @@ async function fetchHTML(url) {
     },
     timeout: 10000
   });
+
   return response.data;
 }
 
@@ -67,15 +68,24 @@ const pickcrawler = {
   '청원24': crawl청원24,
   '구글 폼': crawl구글폼,
   '구글 폼(단축주소)': crawl구글폼,
-  '국회입법예고': crawl입법,
-  '국회전자청원': crawl입법
+  '국회입법예고': crawl입법
 };
+
+// 크롤링 스킵 
+const skipCrawlingSites = ['국회전자청원', '빠띠'];
 
 async function crawlUrl(url, domainInfo = null) {
   try {
+    const siteName = domainInfo?.site_name;
+    
+    if (skipCrawlingSites.includes(siteName)) {
+      console.log(`크롤링 스킵: ${siteName}`);
+      return { success: true, skipped: true };
+    }
+
     console.log(`크롤링 시작: ${url}`);
 
-    const crawlerFn = pickcrawler[domainInfo.site_name];
+    const crawlerFn = pickcrawler[siteName];
     const result = await crawlerFn(url);
 
     const parts = [];
@@ -83,10 +93,6 @@ async function crawlUrl(url, domainInfo = null) {
     if (result.content?.length) parts.push(`내용: ${result.content}`);
 
     let text = parts.join('\n');
-
-    if (!text || text.length < 10) {
-      return { success: false, error: '유효한 텍스트를 크롤링하지 못했습니다.' };
-    }
 
     if (text.length > MAX_TEXT_LENGTH) {
       text = text.substring(0, MAX_TEXT_LENGTH) + '...(이하 생략)';
@@ -96,8 +102,6 @@ async function crawlUrl(url, domainInfo = null) {
     return { success: true, text };
 
   } catch (error) {
-    console.error('크롤링 오류:', error);
-
     if (error.code === 'ECONNABORTED') {
       return { success: false, error: '크롤링 시간이 초과되었습니다.' };
     }
