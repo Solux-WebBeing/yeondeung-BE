@@ -215,7 +215,9 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
             region: post.region || "온라인",
             district: post.district || "",
-            dateDisplay: (post.start_date && post.end_date) ? `${format(post.start_date, post.is_start_time_set)} ~ ${format(post.end_date, post.is_end_time_set)}` : "상시 진행",
+            ddateDisplay: (post.start_date && post.end_date) 
+                ? `${formatForUI(post.start_date, post.is_start_time_set)} ~ ${formatForUI(post.end_date, post.is_end_time_set)}` 
+                : "상시 진행",
             start_date: post.start_date,
             end_date: post.end_date,
             
@@ -252,17 +254,30 @@ const getSortParams = () => {
  * 정렬 스크립트 파라미터 생성 헬퍼
  * 서버의 로컬 타임존 설정에 상관없이 KST 기준 오늘 시작/종료 시점을 UTC 숫자로 계산
  */
+// 1. UI용 날짜 포맷 (000Z 제거 버전)
+const formatForUI = (dateStr, isTimeSet) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    const pad = (n) => n.toString().padStart(2, '0');
+    
+    const datePart = `${d.getFullYear()}. ${pad(d.getMonth() + 1)}. ${pad(d.getDate())}`;
+    const timePart = isTimeSet ? ` ${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
+    
+    return `${datePart}${timePart}`;
+};
+
+// 2. 정렬 파라미터 (KST 오차 없는 절대 숫자값)
 const getSortParams = () => {
     const now = new Date();
     const kstOffset = 9 * 60 * 60 * 1000;
-    
-    // 한국 시간 기준으로 오늘 경계값 계산
     const kstNow = new Date(now.getTime() + kstOffset);
+    
+    // KST 기준 오늘 00:00:00과 23:59:59의 UTC 타임스탬프
     const dayStart = new Date(kstNow.getFullYear(), kstNow.getMonth(), kstNow.getDate(), 0, 0, 0, 0).getTime() - kstOffset;
     const dayEnd = new Date(kstNow.getFullYear(), kstNow.getMonth(), kstNow.getDate(), 23, 59, 59, 999).getTime() - kstOffset;
 
     return {
-        now: now.getTime(), // 현재 시각 타임스탬프
+        now: now.getTime(),
         dayStart: dayStart,
         dayEnd: dayEnd
     };
@@ -327,30 +342,29 @@ exports.searchPosts = async (req, res) => {
             query: esQuery.bool.must.length > 0 || esQuery.bool.filter.length > 0 ? esQuery : { match_all: {} },
             // searchPosts와 getAllPosts의 sort 부분을 아래 내용으로 교체하세요.
         // searchPosts 및 getAllPosts의 sort 부분 공통 수정
-        sort: [
-            {
-                _script: {
-                    type: "number",
-                    script: {
-                        lang: "painless",
-                        source: `
-                            if (doc['end_date'].size() == 0) return 2; // 상시
-                            long end = doc['end_date'].value.toInstant().toEpochMilli();
+            sort: [
+                {
+                    _script: {
+                        type: "number",
+                        script: {
+                            lang: "painless",
+                            source: `
+                                if (doc['end_date'].size() == 0) return 2; // 상시
+                                long end = doc['end_date'].value.toInstant().toEpochMilli();
 
-                            // 1. 현재 시각(now)이 마감 시간(end)을 지났으면 무조건 마감 그룹(3)으로
-                            if (end < params.now) return 3; 
+                                // 현재 시각(now)이 마감(end)보다 크면 즉시 마감 그룹(3)으로 이동
+                                if (end < params.now) return 3; 
 
-                            // 2. 아직 지나지 않았다면 오늘 종료(0)와 미래 종료(1) 구분
-                            if (end >= params.dayStart && end <= params.dayEnd) return 0;
-                            return 1;
-                        `,
-                        params: getSortParams()
-                    },
-                    order: "asc"
-                }
-            },
-            { "created_at": { "order": "desc" } } // 그룹 내에서는 최신순
-        ]
+                                if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
+                                return 1; // 미래 종료
+                            `,
+                            params: getSortParams()
+                        },
+                        order: "asc"
+                    }
+                },
+                { "created_at": { "order": "desc" } } // 2순위: 최신순
+            ]
         });
 
         const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
@@ -377,30 +391,29 @@ exports.getAllPosts = async (req, res) => {
             query: { match_all: {} },
             // searchPosts와 getAllPosts의 sort 부분을 아래 내용으로 교체하세요.
             // searchPosts 및 getAllPosts의 sort 부분 공통 수정
-         sort: [
-            {
-                _script: {
-                    type: "number",
-                    script: {
-                        lang: "painless",
-                        source: `
-                            if (doc['end_date'].size() == 0) return 2; // 상시
-                            long end = doc['end_date'].value.toInstant().toEpochMilli();
+            sort: [
+                {
+                    _script: {
+                        type: "number",
+                        script: {
+                            lang: "painless",
+                            source: `
+                                if (doc['end_date'].size() == 0) return 2; // 상시
+                                long end = doc['end_date'].value.toInstant().toEpochMilli();
 
-                            // 1. 현재 시각(now)이 마감 시간(end)을 지났으면 무조건 마감 그룹(3)으로
-                            if (end < params.now) return 3; 
+                                // 현재 시각(now)이 마감(end)보다 크면 즉시 마감 그룹(3)으로 이동
+                                if (end < params.now) return 3; 
 
-                            // 2. 아직 지나지 않았다면 오늘 종료(0)와 미래 종료(1) 구분
-                            if (end >= params.dayStart && end <= params.dayEnd) return 0;
-                            return 1;
-                        `,
-                        params: getSortParams()
-                    },
-                    order: "asc"
-                }
-            },
-            { "created_at": { "order": "desc" } } // 그룹 내에서는 최신순
-        ]
+                                if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
+                                return 1; // 미래 종료
+                            `,
+                            params: getSortParams()
+                        },
+                        order: "asc"
+                    }
+                },
+                { "created_at": { "order": "desc" } } // 2순위: 최신순
+            ]
         });
 
         const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
