@@ -110,21 +110,17 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
         // D-Day UI 계산
         let dDay = "상시";
         let isTodayEnd = false;
+
         if (post.end_date) {
             const now = new Date();
             const endDate = new Date(post.end_date);
-            const isPast = endDate < now;
 
-            if (isPast) {
-                // UI에서도 시간 설정 안 된 글이 00:00이라서 마감됐다고 표시되는 것 방지
-                if (!post.is_end_time_set && endDate.getDate() === now.getDate() && endDate.getMonth() === now.getMonth()) {
-                     dDay = "D-0";
-                     isTodayEnd = true;
-                } else {
-                     dDay = "마감";
-                     isTodayEnd = false;
-                }
+            // 🔴 이미 시간이 지난 경우 → 무조건 마감
+            if (endDate.getTime() < now.getTime()) {
+                dDay = "마감";
+                isTodayEnd = false;
             } else {
+                // 아직 안 지난 경우 → 날짜 단위 D-Day 계산
                 const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
                 const endMidnight = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
                 const diffDays = Math.ceil((endMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
@@ -138,6 +134,8 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
                 }
             }
         }
+
+
 
         return {
             id: post.id,
@@ -208,18 +206,17 @@ const commonSort = [
             script: {
                 lang: "painless",
                 source: `
-                    // end_date 없는 경우 → 상시 (그룹 2)
-                    if (doc['end_date'].size() == 0) return 2;
+                    if (doc['end_date'].size() == 0) return 2; // 상시
 
                     long end = doc['end_date'].value.toInstant().toEpochMilli();
 
-                    // 1. 이미 마감된 글 → 맨 마지막 (그룹 3)
+                    // 이미 마감
                     if (end < params.now) return 3;
 
-                    // 2. 오늘(KST) 마감 + 아직 안 지난 글 → 최우선 (그룹 0)
+                    // 오늘(KST) 마감 예정
                     if (end >= params.dayStart && end <= params.dayEnd) return 0;
 
-                    // 3. 그 외 미래 마감 → 중간 (그룹 1)
+                    // 미래 마감
                     return 1;
                 `,
                 params: getSortParams()
@@ -228,9 +225,9 @@ const commonSort = [
         }
     },
 
-    // 🔹 2순위: 마감 안 된 그룹끼리는 "생성 오래된 순"
+    // 🔹 2순위: 각 그룹 안에서 "최신 등록순"
     {
-        "created_at": { "order": "asc" }
+        "created_at": { "order": "desc", "missing": "_last" }
     }
 ];
 
