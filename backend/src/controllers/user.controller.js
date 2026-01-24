@@ -639,6 +639,7 @@ exports.getOrgActivities = async (req, res) => {
     const sql = `
       SELECT 
         b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
+        (SELECT image_url FROM board_images WHERE board_id = b.id ORDER BY id ASC LIMIT 1) as thumbnail,
         (SELECT COUNT(*) FROM cheers WHERE board_id = b.id) as cheer_count
       FROM boards b
       WHERE b.user_id = ? 
@@ -866,6 +867,7 @@ exports.getIndividualActivities = async (req, res) => {
     const postSql = `
       SELECT 
         b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
+        (SELECT image_url FROM board_images WHERE board_id = b.id ORDER BY id ASC LIMIT 1) as thumbnail,
         (SELECT COUNT(*) FROM cheers WHERE board_id = b.id) as cheer_count
       FROM boards b 
       WHERE b.user_id = ? 
