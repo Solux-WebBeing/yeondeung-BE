@@ -149,27 +149,51 @@ exports.createPost = async (req, res) => {
         const newBoardId = result.insertId;
 
         // [4] 의제(Topics) 정규화 매핑 저장
+        // [4] 의제(Topics) 정규화 매핑 저장 (수정본)
         const [topicRows] = await connection.query('SELECT id, name FROM topics');
         const topicMap = {};
-        topicRows.forEach(row => topicMap[row.name] = row.id);
 
-        // 입력된 의제 중 실제 DB에 존재하는 것들만 필터링
-        const validTopicValues = topicList
-        .map(name => topicMap[name])
-        .filter(tid => tid);
+        // 1. DB 토픽명을 Map에 저장 (실수 방지를 위해 trim 처리)
+        topicRows.forEach(row => {
+            topicMap[row.name.trim()] = row.id;
+        });
 
-        // 만약 입력된 의제 중 DB에 등록된 것이 하나도 없다면 에러 반환
-        if (validTopicValues.length === 0) {
+        // 2. 입력받은 topicList를 순회하며 유효한 ID만 추출
+        const topicValues = [];
+        const missingTopics = [];
+
+        topicList.forEach(name => {
+            const trimmedName = name.trim();
+            const topicId = topicMap[trimmedName];
+            
+            if (topicId) {
+                // [참고] create 함수면 newBoardId, update 함수면 id를 사용하게끔 처리
+                topicValues.push([newBoardId || id, topicId]); 
+            } else {
+                // DB에 없는 토픽이 들어온 경우 기록 (디버깅용)
+                missingTopics.push(trimmedName);
+            }
+        });
+
+        // 3. 존재하지 않는 토픽이 입력된 경우 서버 로그에 출력
+        if (missingTopics.length > 0) {
+            console.error(`❌ DB에 존재하지 않는 토픽 입력됨: ${missingTopics.join(', ')}`);
+        }
+
+        // 4. [핵심] 유효한 토픽이 단 하나도 없다면 에러를 던져 저장 중단 (main 의도)
+        if (topicValues.length === 0) {
             throw new Error("유효하지 않은 의제입니다. 등록된 의제 중에서 선택해주세요.");
         }
 
-        const topicValues = topicList
-            .map(name => topicMap[name])
-            .filter(tid => tid)
-            .map(tid => [newBoardId, tid]);
+        // 5. 최종적으로 DB에 매핑 정보 삽입
+        await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
 
+        // 4. 최종 저장
         if (topicValues.length > 0) {
             await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
+        } else {
+            // 하나도 매핑되지 않았다면 필수 입력 위반으로 간주하고 에러 처리하는 것이 안전함
+            throw new Error("유효한 의제를 최소 하나 이상 선택해주세요.");
         }
 
         // [5] 이미지 URL 저장 (ImgBB에서 받은 URL 사용)
@@ -312,16 +336,47 @@ exports.updatePost = async (req, res) => {
             WHERE id = ?
         `, [participation_type, title, topics, content, finalStartDate, finalEndDate, is_start_time_set, is_end_time_set, isOfflineEvent ? region : null, isOfflineEvent ? district : null, link || null, id]);
 
-        // [5] 의제(Topics) 매핑 갱신
+        // [5] 의제(Topics) 매핑 갱신 (수정본)
+        // 기존 매핑 삭제
         await connection.query('DELETE FROM board_topics WHERE board_id = ?', [id]);
+
         const [topicRows] = await connection.query('SELECT id, name FROM topics');
         const topicMap = {};
-        topicRows.forEach(row => topicMap[row.name] = row.id);
 
-        const topicList = topics.split(',').map(t => t.trim()).filter(t => t !== '');
-        const topicValues = topicList.map(name => topicMap[name]).filter(tid => tid).map(tid => [id, tid]);
+        // 1. DB 토픽명을 Map에 저장 (trim 처리로 공백 방어)
+        topicRows.forEach(row => {
+            topicMap[row.name.trim()] = row.id;
+        });
+
+        // 2. 입력받은 topics 처리 (문자열/배열 모두 대응)
+        const rawTopics = Array.isArray(topics) ? topics.join(',') : topics;
+        const topicList = rawTopics.split(',').map(t => t.trim()).filter(Boolean);
+
+        const topicValues = [];
+        const missingTopics = [];
+
+        topicList.forEach(name => {
+            const topicId = topicMap[name];
+            if (topicId) {
+                topicValues.push([id, topicId]); // 수정 시에는 params에서 온 id 사용
+            } else {
+                missingTopics.push(name);
+            }
+        });
+
+        // 3. 디버깅 및 에러 처리
+        if (missingTopics.length > 0) {
+            console.warn(`⚠️ 수정 중 알 수 없는 의제 발견: ${missingTopics.join(', ')}`);
+            // 필요 시 에러를 던져 수정을 중단시킬 수 있습니다.
+            // throw new Error(`존재하지 않는 의제입니다: ${missingTopics.join(', ')}`);
+        }
+
+        // 4. 새로운 매핑 삽입
         if (topicValues.length > 0) {
             await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
+        } else {
+            // 수정 시에도 최소 하나의 유효한 토픽은 있어야 함
+            throw new Error("유효한 의제를 최소 하나 이상 선택해야 수정이 가능합니다.");
         }
 
         // [6] 이미지 URL 갱신 (기존 것 다 지우고 최종 리스트로 다시 삽입)
