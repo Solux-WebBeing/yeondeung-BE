@@ -2,59 +2,40 @@ const { Client } = require('@elastic/elasticsearch');
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 const pool = require('../../db');
 
-
-
-// [Helper] 날짜 포맷 변환 (yyyy-MM-dd HH:mm:ss)
+// [핵심 수정 1] 옛날 방식(yyyy-mm-dd) 버리고 ISO 표준(T, Z 포함)으로 변경
+// 이렇게 해야 ES가 "아, 이건 전세계 공통 시간이구나" 하고 정확히 계산함
 const toEsDate = (dateStr) => {
     if (!dateStr) return null;
-    const d = new Date(dateStr);
-    const pad = (n) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return new Date(dateStr).toISOString(); 
 };
 
 /**
- * [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수 (정규화된 스키마 대응)
+ * [Helper] MySQL 데이터 보강 및 UI 가공 공통 함수
  */
 async function enrichDataWithMySQL(results, currentUserId = null) {
     if (!results || results.length === 0) return [];
     
     const boardIds = results.map(post => post.id);
-    // user_id만 뽑아서 중복 제거 (작성자 정보 조회용)
     const userIds = [...new Set(results.map(post => post.user_id).filter(id => id))];
 
-    // ==================================================================================
-    // 1. [게시글 주제] board_topics + topics 테이블 조인하여 게시글별 주제 목록 가져오기
-    // ==================================================================================
+    // 1. 게시글 주제 가져오기
     const [boardTopicRows] = await pool.query(
-        `SELECT bt.board_id, t.name 
-         FROM board_topics bt
-         JOIN topics t ON bt.topic_id = t.id
-         WHERE bt.board_id IN (?)`,
+        `SELECT bt.board_id, t.name FROM board_topics bt JOIN topics t ON bt.topic_id = t.id WHERE bt.board_id IN (?)`,
         [boardIds]
     );
-
-    // Map 구조로 변환: { board_id: ['여성', '노동'], ... }
     const boardTopicsMap = {};
     boardTopicRows.forEach(row => {
         if (!boardTopicsMap[row.board_id]) boardTopicsMap[row.board_id] = [];
         boardTopicsMap[row.board_id].push(row.name);
     });
 
-    // ==================================================================================
-    // 2. [응원 통계] 
-    //    A. 전체 응원 수 (cheerCount)
-    //    B. 특정 주제에 관심있는 응원자 수 (interestMessage 계산용)
-    // ==================================================================================
-    
-    // A. 전체 응원 수
+    // 2. 응원 통계
     const [totalCheers] = await pool.query(
         `SELECT board_id, COUNT(*) as count FROM cheers WHERE board_id IN (?) GROUP BY board_id`,
         [boardIds]
     );
     const cheerMap = totalCheers.reduce((acc, cur) => { acc[cur.board_id] = cur.count; return acc; }, {});
 
-    // B. "게시글별" + "주제별" 응원자 수 카운트 (중복 제거)
-    // 설명: cheers 테이블에서 해당 글에 응원한 사람을 찾고 -> user_interests를 통해 그 사람의 관심사를 찾음
     const [cheererInterestRows] = await pool.query(
         `SELECT c.board_id, t.name as topic_name, COUNT(DISTINCT c.user_id) as count
          FROM cheers c
@@ -64,47 +45,31 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
          GROUP BY c.board_id, t.name`,
         [boardIds]
     );
-
-    // Map 구조로 변환: { board_id: { '여성': 5, '기후': 2 } }
     const cheererInterestMap = {};
     cheererInterestRows.forEach(row => {
         if (!cheererInterestMap[row.board_id]) cheererInterestMap[row.board_id] = {};
         cheererInterestMap[row.board_id][row.topic_name] = row.count;
     });
 
-    // ==================================================================================
-    // 3. [로그인 유저] 내 응원 여부 & 내 관심사 조회
-    // ==================================================================================
+    // 3. 유저 정보
     let userCheerSet = new Set();
     let myInterestTopics = []; 
-
     if (currentUserId) {
-        // A. 내가 응원했는지
         const [userCheers] = await pool.query(
             `SELECT board_id FROM cheers WHERE user_id = ? AND board_id IN (?)`,
             [currentUserId, boardIds]
         );
         userCheerSet = new Set(userCheers.map(c => c.board_id));
 
-        // B. 내 관심사 조회 (user_interests 테이블 사용)
         try {
             const [myInterests] = await pool.query(
-                `SELECT t.name 
-                 FROM user_interests ui
-                 JOIN topics t ON ui.topic_id = t.id
-                 WHERE ui.user_id = ?`,
+                `SELECT t.name FROM user_interests ui JOIN topics t ON ui.topic_id = t.id WHERE ui.user_id = ?`,
                 [currentUserId]
             );
             myInterestTopics = myInterests.map(row => row.name);
-        } catch (err) {
-            console.error("User Interest Fetch Error:", err);
-        }
+        } catch (err) { console.error("User Interest Fetch Error:", err); }
     }
 
-    // ==================================================================================
-    // 4. 기타 정보 (이미지, 작성자 타입)
-    // ==================================================================================
-    // 썸네일
     const [boardImages] = await pool.query(
         `SELECT board_id, image_url FROM board_images WHERE board_id IN (?) ORDER BY id ASC`,
         [boardIds]
@@ -112,16 +77,11 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     const imageMap = {};
     boardImages.forEach(img => { if (!imageMap[img.board_id]) imageMap[img.board_id] = img.image_url; });
 
-    // 작성자 정보
     const userMap = {};
     if (userIds.length > 0) {
-        const [users] = await pool.query(
-            `SELECT id, user_type FROM users WHERE id IN (?)`, 
-            [userIds]
-        );
+        const [users] = await pool.query(`SELECT id, user_type FROM users WHERE id IN (?)`, [userIds]);
         users.forEach(u => {
             let typeStr = "기타";
-            // DB 값에 따라 매핑 (환경에 맞게 수정하세요)
             if (u.user_type === 0 || u.user_type === 'individual') typeStr = "individual";
             else if (u.user_type === 1 || u.user_type === 'organization') typeStr = "organization";
             else typeStr = u.user_type || "기타";
@@ -129,69 +89,48 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
         });
     }
 
-    const today = new Date();
-    const todayCompare = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    // [UI용 포맷 함수] - 화면에 보여줄 때는 보기 좋게 가공
+    const formatForUI = (dateStr, isTimeSet) => {
+        if (!dateStr) return "";
+        const d = new Date(dateStr);
+        const pad = (n) => n.toString().padStart(2, '0');
+        const datePart = `${d.getFullYear()}. ${pad(d.getMonth() + 1)}. ${pad(d.getDate())}`;
+        const timePart = isTimeSet ? ` ${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
+        return `${datePart}${timePart}`;
+    };
 
-    // ==================================================================================
-    // 5. 데이터 병합 및 UI 로직 적용
-    // ==================================================================================
     return results.map(post => {
-        // 1) 게시글 주제 가져오기 (DB에서 가져온 Map 사용)
         const currentTopics = boardTopicsMap[post.id] || [];
-        
-        // 2) 표시할 주제(Display Topic) 선정
         let displayTopic = "사회"; 
-        
         if (currentTopics.length > 0) {
-            // 내 관심사와 교집합 확인
             const matchingTopics = currentTopics.filter(topic => myInterestTopics.includes(topic));
-            
-            if (matchingTopics.length > 0) {
-                // 교집합 중 랜덤 선택
-                const randomIndex = Math.floor(Math.random() * matchingTopics.length);
-                displayTopic = matchingTopics[randomIndex];
-            } else {
-                // 교집합 없으면 게시글 주제 중 랜덤 선택
-                const randomIndex = Math.floor(Math.random() * currentTopics.length);
-                displayTopic = currentTopics[randomIndex];
-            }
+            displayTopic = matchingTopics.length > 0 
+                ? matchingTopics[Math.floor(Math.random() * matchingTopics.length)] 
+                : currentTopics[Math.floor(Math.random() * currentTopics.length)];
         }
 
-        // 3) 카운트 로직
         const totalCount = cheerMap[post.id] || 0;
-        
-        // 해당 게시글(post.id)에서 displayTopic에 관심있는 응원자 수 조회
-        // cheererInterestMap 구조: { board_id: { '여성': 5, '노동': 3 } }
-        const specificInterestCount = (cheererInterestMap[post.id] && cheererInterestMap[post.id][displayTopic]) 
-            ? cheererInterestMap[post.id][displayTopic] 
-            : 0; // 없으면 0명 (단, 기획 의도에 따라 totalCount로 대체할 수도 있음)
+        const specificInterestCount = (cheererInterestMap[post.id] && cheererInterestMap[post.id][displayTopic]) || 0;
 
-        // D-Day 계산
-        // [수정] D-Day 및 마감 상태 계산
+        // D-Day 계산 (UI용)
         let dDay = "상시";
         let isTodayEnd = false;
-
         if (post.end_date) {
-            const now = new Date(); // 현재 시점 (KST/UTC 상관없이 절대 비교용)
-            const endDate = new Date(post.end_date); // DB에서 가져온 마감 시점
-            
-            // 1. 시간이 1초라도 지났는지 확인 (가장 중요)
-            const isPast = endDate < now; 
+            const now = new Date();
+            const endDate = new Date(post.end_date);
+            const isPast = endDate < now;
 
             if (isPast) {
                 dDay = "마감";
-                isTodayEnd = false; // 이미 지났으므로 '오늘 종료' 배지 해제
+                isTodayEnd = false;
             } else {
-                // 2. 아직 안 지났다면 날짜 차이 계산
-                // 시간 정보를 00:00:00으로 맞춘 순수 '날짜' 비교용
-                const todayDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
-                
-                const diffDays = Math.ceil((endDateOnly - todayDateOnly) / (1000 * 60 * 60 * 24));
+                const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                const endMidnight = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+                const diffDays = Math.ceil((endMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
 
                 if (diffDays === 0) {
                     dDay = "D-0";
-                    isTodayEnd = true; // 오늘 마감 예정
+                    isTodayEnd = true;
                 } else {
                     dDay = `D-${diffDays}`;
                     isTodayEnd = false;
@@ -199,52 +138,25 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             }
         }
 
-        // [수정된 format 헬퍼]
-        // enrichDataWithMySQL 내부의 format 함수 수정
-        const format = (d, t) => {
-            if (!d) return "";
-            const dateObj = new Date(d);
-            
-            // 한국 시간(KST) 기준으로 연, 월, 일, 시, 분 추출
-            const year = dateObj.getFullYear();
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            const hours = String(dateObj.getHours()).padStart(2, '0');
-            const minutes = String(dateObj.getMinutes()).padStart(2, '0');
-
-            const datePart = `${year}. ${month}. ${day}`;
-            const timePart = t ? ` ${hours}:${minutes}` : ''; // t(is_time_set)가 true일 때만 시간 표시
-            
-            return `${datePart}${timePart}`;
-        };
-        const finalHostType = post.host_type || userMap[post.user_id] || "기타";
-
         return {
             id: post.id,
             title: post.title,
             thumbnail: imageMap[post.id] || "none",
-            topics: currentTopics, 
-            
+            topics: currentTopics,
             location: post.region ? `${post.region}${post.district ? ` > ${post.district}` : ""}` : "온라인",
             region: post.region || "온라인",
             district: post.district || "",
-
-            // 1. UI용 전체 기간 표시 필드 (오타 수정: dateDisplay)
             dateDisplay: (post.start_date && post.end_date) 
                 ? `${formatForUI(post.start_date, post.is_start_time_set)} ~ ${formatForUI(post.end_date, post.is_end_time_set)}` 
                 : "상시 진행",
-
-            // 2. [핵심 수정] 원본 ISO 문자열 대신 가공된 문자열을 내려줌
             start_date: formatForUI(post.start_date, post.is_start_time_set),
             end_date: formatForUI(post.end_date, post.is_end_time_set),
-            
             cheerCount: totalCount,
-            is_cheered: userCheerSet.has(post.id), 
-            is_author: currentUserId === post.user_id, 
-            host_type: finalHostType,
+            is_cheered: userCheerSet.has(post.id),
+            is_author: currentUserId === post.user_id,
+            host_type: post.host_type || userMap[post.user_id] || "기타",
             dDay,
-            isTodayEnd, 
-            
+            isTodayEnd,
             interestMessage: `${displayTopic} 의제에 관심이 있는 ${specificInterestCount}명이 연대합니다!`,
             interestTopic: displayTopic,
             interestCounts: specificInterestCount
@@ -252,44 +164,16 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     });
 }
 
-/**
- * 정렬 스크립트 파라미터 생성 헬퍼
- */
-/*
-const getSortParams = () => {
-    const now = new Date();
-    return {
-        now: now.getTime(),
-        dayStart: new Date(now.setHours(0, 0, 0, 0)).getTime(),
-        dayEnd: new Date(now.setHours(23, 59, 59, 999)).getTime()
-    };
-};*/
-
-/**
- * 정렬 스크립트 파라미터 생성 헬퍼
- * 서버의 로컬 타임존 설정에 상관없이 KST 기준 오늘 시작/종료 시점을 UTC 숫자로 계산
- */
-// 1. UI용 날짜 포맷 (000Z 제거 버전)
-const formatForUI = (dateStr, isTimeSet) => {
-    if (!dateStr) return "";
-    const d = new Date(dateStr);
-    const pad = (n) => n.toString().padStart(2, '0');
-    
-    const datePart = `${d.getFullYear()}. ${pad(d.getMonth() + 1)}. ${pad(d.getDate())}`;
-    const timePart = isTimeSet ? ` ${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
-    
-    return `${datePart}${timePart}`;
-};
-
-// 2. 정렬 파라미터 (KST 오차 없는 절대 숫자값)
+// [핵심 수정 2] 정렬 파라미터 계산 (KST 기준을 UTC 숫자로 정확히 변환)
 const getSortParams = () => {
     const now = new Date();
     const kstOffset = 9 * 60 * 60 * 1000;
     const kstNow = new Date(now.getTime() + kstOffset);
     
-    // KST 기준 오늘 00:00:00과 23:59:59의 UTC 타임스탬프
-    const dayStart = new Date(kstNow.getFullYear(), kstNow.getMonth(), kstNow.getDate(), 0, 0, 0, 0).getTime() - kstOffset;
-    const dayEnd = new Date(kstNow.getFullYear(), kstNow.getMonth(), kstNow.getDate(), 23, 59, 59, 999).getTime() - kstOffset;
+    // 한국 시간 기준 오늘 00:00과 23:59를 구한 뒤, 다시 UTC 타임스탬프로 변환
+    // 이렇게 해야 ES에 저장된 ISO(UTC) 시간과 정확히 매칭됨
+    const dayStart = new Date(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 0, 0, 0, 0).getTime() - kstOffset;
+    const dayEnd = new Date(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 23, 59, 59, 999).getTime() - kstOffset;
 
     return {
         now: now.getTime(),
@@ -297,6 +181,36 @@ const getSortParams = () => {
         dayEnd: dayEnd
     };
 };
+
+// [공통 정렬 스크립트]
+const commonSort = [
+    {
+        _script: {
+            type: "number",
+            script: {
+                lang: "painless",
+                source: `
+                    if (doc['end_date'].size() == 0) return 2; // 상시 -> 그룹 2
+                    
+                    // 저장된 시간을 숫자로 변환 (타임존 무시하고 절대값 비교)
+                    long end = doc['end_date'].value.toInstant().toEpochMilli();
+
+                    // 1. 이미 마감된 글은 무조건 꼴찌 (그룹 3)
+                    if (end < params.now) return 3; 
+
+                    // 2. 오늘 마감되는 글은 최우선 (그룹 0)
+                    if (end >= params.dayStart && end <= params.dayEnd) return 0;
+                    
+                    // 3. 그 외 미래 종료는 중간 (그룹 1)
+                    return 1;
+                `,
+                params: getSortParams()
+            },
+            order: "asc"
+        }
+    },
+    { "created_at": { "order": "desc" } } // 그룹 내에서는 최신순
+];
 
 /**
  * 1. 게시글 통합 검색
@@ -310,13 +224,13 @@ exports.searchPosts = async (req, res) => {
         const esQuery = { bool: { must: [], filter: [] } };
 
         if (start_date && end_date) {
+            // 여기도 수정된 toEsDate(ISO 형식)가 적용됨
             esQuery.bool.filter.push({ range: { start_date: { gte: toEsDate(start_date) } } });
             esQuery.bool.filter.push({ range: { end_date: { lte: toEsDate(end_date) } } });
         } else {
             esQuery.bool.filter.push({ range: { end_date: { gte: "now-30d/d" } } });
         }
 
-        // 일반 필터 처리
         const addMultiFilter = (field, valueString) => {
             if (valueString) {
                 const values = valueString.split(',').map(v => v.trim()).filter(Boolean);
@@ -329,7 +243,6 @@ exports.searchPosts = async (req, res) => {
         };
         ['topics', 'participation_type', 'host_type'].forEach(f => addMultiFilter(f, req.query[f]));
 
-        // 지역/구 세트 필터
         if (region) esQuery.bool.filter.push({ match_phrase: { region: region.trim() } });
         if (district) {
             const districts = district.split(',').map(v => v.trim()).filter(Boolean);
@@ -355,31 +268,7 @@ exports.searchPosts = async (req, res) => {
             index: 'boards',
             from, size,
             query: esQuery.bool.must.length > 0 || esQuery.bool.filter.length > 0 ? esQuery : { match_all: {} },
-            // searchPosts와 getAllPosts의 sort 부분을 아래 내용으로 교체하세요.
-        // searchPosts 및 getAllPosts의 sort 부분 공통 수정
-            sort: [
-                {
-                    _script: {
-                        type: "number",
-                        script: {
-                            lang: "painless",
-                            source: `
-                                if (doc['end_date'].size() == 0) return 2; // 상시
-                                long end = doc['end_date'].value.toInstant().toEpochMilli();
-
-                                // 현재 시각(now)이 마감(end)보다 크면 즉시 마감 그룹(3)으로 이동
-                                if (end < params.now) return 3; 
-
-                                if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
-                                return 1; // 미래 종료
-                            `,
-                            params: getSortParams()
-                        },
-                        order: "asc"
-                    }
-                },
-                { "created_at": { "order": "desc" } } // 2순위: 최신순
-            ]
+            sort: commonSort // [수정] 공통 정렬 로직 적용
         });
 
         const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
@@ -404,31 +293,7 @@ exports.getAllPosts = async (req, res) => {
             index: 'boards',
             from, size,
             query: { match_all: {} },
-            // searchPosts와 getAllPosts의 sort 부분을 아래 내용으로 교체하세요.
-            // searchPosts 및 getAllPosts의 sort 부분 공통 수정
-            sort: [
-                {
-                    _script: {
-                        type: "number",
-                        script: {
-                            lang: "painless",
-                            source: `
-                                if (doc['end_date'].size() == 0) return 2; // 상시
-                                long end = doc['end_date'].value.toInstant().toEpochMilli();
-
-                                // 현재 시각(now)이 마감(end)보다 크면 즉시 마감 그룹(3)으로 이동
-                                if (end < params.now) return 3; 
-
-                                if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
-                                return 1; // 미래 종료
-                            `,
-                            params: getSortParams()
-                        },
-                        order: "asc"
-                    }
-                },
-                { "created_at": { "order": "desc" } } // 2순위: 최신순
-            ]
+            sort: commonSort // [수정] 공통 정렬 로직 적용
         });
 
         const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
