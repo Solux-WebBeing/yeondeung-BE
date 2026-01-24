@@ -47,8 +47,9 @@ const startMailingTask = () => {
     cron.schedule('0 * * * *', async () => {
         try {
             const now = new Date();
-            const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][now.getDay()];
-            // 9시간을 빼자
+            const kstDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+            const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][kstDate.getDay()];
+            // 9시간을 더하자
             const adjustedHour = (now.getHours() + 9) % 24;
             const currentTime = `${String(adjustedHour).padStart(2, '0')}:00:00`;
 
