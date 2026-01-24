@@ -213,7 +213,7 @@ const sendInterestPostEmail = async (toEmail, userName, posts) => {
   const mailOptions = {
     from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
     to: toEmail,
-    subject: '[연등] 나의 관심 분야의 새로운 게시글',
+    subject: '[연등] 나의 관심 분야의 새로운 소식을 전해드려요',
     html: getInterestPostTemplate(userName, posts),
     attachments: [
       {
@@ -254,7 +254,7 @@ const sendPopularPostEmail = async (toEmail, userName, posts) => {
   const mailOptions = {
     from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
     to: toEmail,
-    subject: '[연등] 이번 주 인기 게시글',
+    subject: '[연등] 이번 주에 주목받는 소식을 전해드려요',
     html: getPopularPostTemplate(userName, posts),
     attachments: [
       {
