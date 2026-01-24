@@ -41,7 +41,7 @@ async function validateBoardCreate(req, res, next) {
 
     let domainInfo = null;
     if (link) {
-      const linkValidation = await link_validate(link); // 도메인 검사
+      const linkValidation = await link_validate(link, participation_type); // 도메인 검사
 
       if (!linkValidation.valid) {
         return responseUtil.fail(res, linkValidation.message, 400);
@@ -58,9 +58,10 @@ async function validateBoardCreate(req, res, next) {
 
       if (crawlResult.success) {
         crawledText = crawlResult.text;
-        console.log(`[✅Validation] 크롤링 성공: ${link}`);
+        console.log(`[✅Validation] 크롤링 ${crawlResult.skipped ? '스킵' : '성공'}: ${link}`);
       } else {
         console.log(`[⚠️Validation] 크롤링 실패: ${crawlResult.error}`);
+        return responseUtil.fail(res, '첨부 링크 검증에 실패했습니다.', 400);
       }
 
       // AI 검사

@@ -68,15 +68,24 @@ const pickcrawler = {
   '청원24': crawl청원24,
   '구글 폼': crawl구글폼,
   '구글 폼(단축주소)': crawl구글폼,
-  '국회입법예고': crawl입법,
-  '국회전자청원': crawl입법
+  '국회입법예고': crawl입법
 };
+
+// 크롤링 스킵 
+const skipCrawlingSites = ['국회전자청원', '빠띠'];
 
 async function crawlUrl(url, domainInfo = null) {
   try {
+    const siteName = domainInfo?.site_name;
+    
+    if (skipCrawlingSites.includes(siteName)) {
+      console.log(`크롤링 스킵: ${siteName}`);
+      return { success: true, skipped: true };
+    }
+
     console.log(`크롤링 시작: ${url}`);
 
-    const crawlerFn = pickcrawler[domainInfo.site_name];
+    const crawlerFn = pickcrawler[siteName];
     const result = await crawlerFn(url);
 
     const parts = [];
