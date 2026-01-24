@@ -194,7 +194,20 @@ exports.deleteReportedPost = async (req, res) => {
         connection = await pool.getConnection();
         await connection.beginTransaction();
 
-        // 1. MySQL 게시글 삭제 
+        // 1. 알림에 사용할 게시글 정보(작성자 ID, 제목) 선조회
+        const [boardRows] = await connection.query("SELECT user_id, title FROM boards WHERE id = ?", [boardId]);
+        if (boardRows.length === 0) {
+            await connection.rollback();
+            return fail(res, '삭제할 게시글을 찾을 수 없거나 이미 삭제되었습니다.', 404);
+        }
+        const { user_id, title } = boardRows[0];
+
+        // 2.  알림 메시지 생성 및 발송
+        const notificationMessage = "신고된 게시글에 대해 운영진이 검토한 결과, 서비스 운영 정책에 따라 해당 게시글이 삭제되었습니다.";
+
+        await notificationUtil.sendSystemNotification(connection, user_id, notificationMessage, title, adminReason);
+
+        // 3. MySQL 게시글 삭제 
         // 테이블에 설정된 ON DELETE CASCADE 덕분에 이미지, 의제 매핑, 응원봉 데이터가 자동으로 함께 삭제됩니다.
         const [deleteResult] = await connection.query("DELETE FROM boards WHERE id = ?", [boardId]);
 
@@ -203,7 +216,7 @@ exports.deleteReportedPost = async (req, res) => {
             return fail(res, '삭제할 게시글을 찾을 수 없거나 이미 삭제되었습니다.', 404);
         }
 
-        // 2. 신고 상태 업데이트 및 사유(admin_comment) 기록
+        // 4. 신고 상태 업데이트 및 사유(admin_comment) 기록
         // 추후 SSE 알림 구현 시 이 admin_comment를 불러와서 사용자에게 알림을 보낼 수 있습니다.
         const updateReportSql = `
             UPDATE reports 
@@ -212,10 +225,10 @@ exports.deleteReportedPost = async (req, res) => {
         `;
         await connection.query(updateReportSql, [adminReason, reportId]);
 
-        // 3. 트랜잭션 커밋
+        // 5. 트랜잭션 커밋
         await connection.commit();
 
-        // 4. ELK 실시간 인덱스 삭제
+        // 6. ELK 실시간 인덱스 삭제
         // 검색 결과에서 즉시 사라지게 처리합니다.
         try {
             await esClient.delete({
@@ -352,11 +365,13 @@ exports.approveOrgEdit = async (req, res) => {
           [requestId]
       );
 
-      // 4. 실시간 인앱 알림 생성
+      // 4. 실시간 인앱 알림 생성 (매개변수 순서 맞춤)
       await notificationUtil.sendSystemNotification(
         connection, 
         r.user_id, 
-        '요청하신 단체 정보 수정이 성공적으로 반영되었습니다.'
+        '요청하신 단체 정보 수정이 성공적으로 반영되었습니다.',
+        null, // title
+        null  // rejectReason
       );
 
       // 5. 보조 이메일 발송 (공통 문구 적용)
@@ -405,13 +420,14 @@ exports.rejectOrgEdit = async (req, res) => {
           return fail(res, '유효한 요청을 찾을 수 없습니다.', 404);
       }
 
-      // 2. 알림 생성 (메시지와 사유를 분리하여 전달)
+      // 2. 알림 생성 (message와 rejectReason 사이에 title 위치에 null 전달)
       const [reqData] = await connection.query('SELECT user_id FROM organization_edit_requests WHERE id = ?', [requestId]);
       await notificationUtil.sendSystemNotification(
           connection, 
           reqData[0].user_id, 
-          '요청하신 단체 정보 수정이 반려되었습니다.', // 메인 메시지
-          rejectReason                             // 별도 사유 필드
+          '요청하신 단체 정보 수정이 반려되었습니다.', 
+          null,            // title이 없으므로 null 전달
+          rejectReason     // 사유 필드
       );
 
       // 3. 이메일 발송

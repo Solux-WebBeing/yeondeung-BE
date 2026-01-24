@@ -21,7 +21,7 @@ startCleanupTask();
 startMailingTask();
 
 // 4. [수정] CORS 설정: .env의 ALLOWED_ORIGINS를 읽어서 처리
-const rawOrigins = process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:8000';
+const rawOrigins = process.env.ALLOWED_ORIGINS || 'https://yeondeung-b449c.web.app,http://localhost:3000,http://localhost:8000';
 const allowedOrigins = rawOrigins.split(',').map(origin => origin.trim());
 
 const corsOptions = {

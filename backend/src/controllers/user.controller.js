@@ -458,14 +458,18 @@ exports.getMyProfile = async (req, res) => {
     
     if (user_type === 'INDIVIDUAL') {
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, u.role, ip.nickname, ip.mailing_consent 
+        SELECT 
+          u.id, u.userid, u.email, u.user_type, u.role, ip.nickname, ip.mailing_consent, ip.interests,ip.mailing_days, ip.mailing_time 
         FROM users u
         LEFT JOIN individual_profiles ip ON u.id = ip.user_id
         WHERE u.id = ?
       `;
     } else if (user_type === 'ORGANIZATION') {
+      // 수정 검토 중 상태 확인을 위한 서브쿼리 추가
       profileSql = `
-        SELECT u.id, u.userid, u.email, u.user_type, u.role, op.org_name, op.sns_link, op.contact_number, op.address
+        SELECT 
+          u.id, u.userid, u.email, u.user_type, u.role, op.org_name, op.sns_link, op.contact_number, op.address, op.introduction,
+          IF(EXISTS(SELECT 1 FROM organization_edit_requests WHERE user_id = u.id AND status = 'PENDING'), true, false) as is_reviewing
         FROM users u
         LEFT JOIN organization_profiles op ON u.id = op.user_id
         WHERE u.id = ?
@@ -628,21 +632,34 @@ exports.requestOrgUpdate = async (req, res) => {
 exports.getOrgActivities = async (req, res) => {
   const { id } = req.user;
   const page = parseInt(req.query.page) || 1;
-  const limit = 4; // 한 페이지 당 최대 4개
+  const limit = 4;
   const offset = (page - 1) * limit;
 
-  try {
-    const [rows] = await pool.query(
-      'SELECT id, title, created_at FROM boards WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [id, limit, offset]
-    );
+  try { // 날짜, 지역, 태그, 응원 수 필드 추가
+    const sql = `
+      SELECT 
+        b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
+        (SELECT COUNT(*) FROM cheers WHERE board_id = b.id) as cheer_count
+      FROM boards b
+      WHERE b.user_id = ? 
+      ORDER BY b.created_at DESC 
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await pool.query(sql, [id, limit, offset]);
     
-    if (rows.length === 0 && page === 1) {
+    // topics 문자열을 배열로 변환
+    const posts = rows.map(post => ({
+      ...post,
+      topics: post.topics ? post.topics.split(',').map(t => t.trim()) : []
+    }));
+
+    if (posts.length === 0 && page === 1) {
       return success(res, '아직 등록한 연대 활동이 없어요.', { posts: [] });
     }
 
-    return success(res, '활동 조회 성공', { posts: rows });
+    return success(res, '활동 조회 성공', { posts });
   } catch (error) {
+    console.error('Get Org Activities Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
   }
 };
@@ -655,11 +672,10 @@ exports.setupIndividual = async (req, res) => {
     const { interests, mailing_consent, mailing_days, mailing_time } = req.body;
     let connection;
 
-    // DB 마스터 데이터와 일치하도록 수정 (/, / 포함)
     const ALLOWED_INTERESTS = [
         '여성', '청소년', '노동자', '성소수자', '농민', '장애인', 
-        '교육', '범죄/사법', '복지', '의료', '환경', '인권', 
-        '추모/기억', '동물권'
+        '교육', '범죄·사법', '복지', '의료', '환경', '인권', 
+        '추모·기억', '동물권'
     ];
     const ALLOWED_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -676,9 +692,17 @@ exports.setupIndividual = async (req, res) => {
         let dbTime = null;
 
         if (mailing_consent === true) {
+            // 1. 배열 여부 및 길이 검증
             if (!Array.isArray(mailing_days) || mailing_days.length !== 2) {
                 return res.status(400).json({ success: false, message: '메일링 요일 2개를 선택해야 합니다.' });
             }
+          
+            // 2. 요일 값 유효성 검사 ("월요일" 등 방지)
+            const invalidDay = mailing_days.find(day => !ALLOWED_DAYS.includes(day));
+            if (invalidDay) {
+                return res.status(400).json({ success: false, message: `유효하지 않은 요일 형식입니다: ${invalidDay}` });
+            }
+
             const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
             if (!mailing_time || !timeRegex.test(mailing_time)) {
                 return res.status(400).json({ success: false, message: '시간 형식이 올바르지 않습니다.' });
@@ -695,12 +719,10 @@ exports.setupIndividual = async (req, res) => {
         connection = await pool.getConnection();
         await connection.beginTransaction();
 
-        // 1. 의제 ID 매핑 정보 로드
         const [topicRows] = await connection.query('SELECT id, name FROM topics');
         const topicMap = {};
         topicRows.forEach(row => topicMap[row.name] = row.id);
 
-        // 2. 프로필 업데이트 (기존 JSON 필드 유지)
         const interestsJson = JSON.stringify(interests);
         await connection.query(`
             UPDATE individual_profiles 
@@ -708,7 +730,6 @@ exports.setupIndividual = async (req, res) => {
             WHERE user_id = ?
         `, [interestsJson, mailing_consent, daysJson, dbTime, id]);
 
-        // 3. [정규화] user_interests 매핑 갱신
         await connection.query('DELETE FROM user_interests WHERE user_id = ?', [id]);
         const interestValues = interests
             .map(name => topicMap[name])
@@ -719,7 +740,6 @@ exports.setupIndividual = async (req, res) => {
             await connection.query('INSERT INTO user_interests (user_id, topic_id) VALUES ?', [interestValues]);
         }
 
-        // 4. 첫 로그인 상태 변경
         await connection.query('UPDATE users SET is_first_login = true WHERE id = ?', [id]);
 
         await connection.commit();
@@ -790,11 +810,23 @@ exports.updateIndivProfile = async (req, res) => {
 exports.updateMailing = async (req, res) => {
   const { id } = req.user;
   const { mailing_consent, mailing_days, mailing_time } = req.body;
+  const ALLOWED_DAYS = ['월', '화', '수', '목', '금', '토', '일']; // [추가]
 
   try {
     let sql, params;
     if (mailing_consent) {
-      // 시간 형식 변환 로직 (AM/PM -> HH:mm:ss)
+      // 1. 요일 배열 및 길이 검증
+      if (!Array.isArray(mailing_days) || mailing_days.length !== 2) {
+          return fail(res, '메일링 요일 2개를 선택해야 합니다.', 400);
+      }
+
+      // 2. 요일 값 유효성 검사
+      const invalidDay = mailing_days.find(day => !ALLOWED_DAYS.includes(day));
+      if (invalidDay) {
+          return fail(res, `유효하지 않은 요일 형식입니다: ${invalidDay}`, 400);
+      }
+
+      // 3. 시간 형식 변환 및 검증
       const timeRegex = /^(AM|PM)\s(1[0-2]|[1-9])시$/;
       if (!mailing_time || !timeRegex.test(mailing_time)) {
           return fail(res, '시간 형식이 올바르지 않습니다.', 400);
@@ -806,11 +838,9 @@ exports.updateMailing = async (req, res) => {
       else if (amPm === 'AM' && hour === 12) hour = 0;
       const dbTime = `${String(hour).padStart(2, '0')}:00:00`;
 
-      // 수신 켜기 및 수정
       sql = 'UPDATE individual_profiles SET mailing_consent = true, mailing_days = ?, mailing_time = ? WHERE user_id = ?';
       params = [JSON.stringify(mailing_days), dbTime, id];
     } else {
-      // 수신 끄기 (초기화)
       sql = 'UPDATE individual_profiles SET mailing_consent = false, mailing_days = NULL, mailing_time = NULL WHERE user_id = ?';
       params = [id];
     }
@@ -824,17 +854,36 @@ exports.updateMailing = async (req, res) => {
 };
 
 // 개인 활동 조회
+// 날짜, 지역, 태그, 응원 수 필드 추가
 exports.getIndividualActivities = async (req, res) => {
   const { id } = req.user;
   try {
-    const [posts] = await pool.query(
-      'SELECT id, title, created_at FROM boards WHERE user_id = ? ORDER BY created_at DESC LIMIT 4', [id]
-    );
+    const postSql = `
+      SELECT 
+        b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
+        (SELECT COUNT(*) FROM cheers WHERE board_id = b.id) as cheer_count
+      FROM boards b 
+      WHERE b.user_id = ? 
+      ORDER BY b.created_at DESC 
+      LIMIT 4
+    `;
+    const [rows] = await pool.query(postSql, [id]);
+    
+    const posts = rows.map(post => ({
+      ...post,
+      topics: post.topics ? post.topics.split(',').map(t => t.trim()) : []
+    }));
+
     const [cheers] = await pool.query(
       'SELECT COUNT(*) as count FROM cheers WHERE user_id = ?', [id]
     );
-    return success(res, '활동 조회 성공', { written_posts: posts, cheer_count: cheers[0].count });
+
+    return success(res, '활동 조회 성공', { 
+      written_posts: posts, 
+      cheer_count: cheers[0].count 
+    });
   } catch (error) {
+    console.error('Get Individual Activities Error:', error);
     return fail(res, '서버 에러', 500);
   }
 };
@@ -865,7 +914,8 @@ exports.getCheeredActivitiesForCalendar = async (req, res) => {
      */
     const sql = `
       SELECT 
-        b.id, 
+        b.id as board_id, 
+        c.created_at as cheered_at,
         b.participation_type, 
         b.title, 
         b.topics, 
@@ -890,11 +940,14 @@ exports.getCheeredActivitiesForCalendar = async (req, res) => {
 
     const [activities] = await connection.query(sql, [id, targetMonth, targetMonth]);
 
-    if (activities.length === 0) {
-      return success(res, { activities: [] }, '이 날짜에는 응원한 활동이 없습니다.');
-    }
+    // topics 문자열을 배열로 변환
+    const formattedActivities = activities.map(act => ({
+      ...act,
+      topics: act.topics ? act.topics.split(',').map(t => t.trim()) : []
+    }));
 
-    return success(res, { activities }, '응원 활동 달력 조회 성공');
+    // 기존 success(res, message, data) 구조에 맞춰 data 배열에 담기도록 수정
+    return success(res, '응원 활동 달력 조회 성공', formattedActivities);
   } catch (error) {
     console.error('Calendar Fetch Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
@@ -931,7 +984,7 @@ exports.withdrawMember = async (req, res) => {
 
     connection = await pool.getConnection();
     const [users] = await connection.query('SELECT password FROM users WHERE id = ?', [id]);
-    
+
     // 1. 비밀번호 일치 확인
     const isMatch = await bcrypt.compare(password, users[0].password);
     if (!isMatch) return fail(res, '비밀번호가 일치하지 않습니다.', 400);
@@ -996,7 +1049,110 @@ exports.checkPassword = async (req, res) => {
 };
 
 /**
- * 토큰 재발급 (Refresh Token 검증)
+ * 13. 아이디 찾기
+ */
+exports.findUserid = async (req, res) => {
+  let connection;
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return fail(res, '이메일을 입력해주세요.', 400);
+    }
+    connection = await pool.getConnection();
+    const sql = 'SELECT userid FROM users WHERE email = ?';
+    const [rows] = await connection.query(sql, [email]);
+    if (rows.length === 0) {
+      return fail(res, '입력하신 정보와 일치하는 회원이 없습니다.', 404);
+    }
+    return success(res, '아이디:', { userid: rows[0].userid });
+  } catch (error) {
+    console.error('Server Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 14. 비밀번호 재설정 - 인증번호 발송
+ */
+exports.sendPasswordResetCode = async (req, res) => {
+  let connection;
+  try {
+    const { userid, email } = req.body;
+    if (!userid || !email) {
+      return fail(res, '아이디와 이메일을 모두 입력해주세요.', 400);
+    }
+    connection = await pool.getConnection();
+    const userSql = 'SELECT 1 FROM users WHERE userid = ? AND email = ?';
+    const [users] = await connection.query(userSql, [userid, email]);
+    if (users.length === 0) {
+      return fail(res, '아이디 또는 이메일을 잘못 입력했습니다. 입력하신 내용을 다시 확인해주세요.', 404);
+    }
+    const code = generateVerificationCode();
+    const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10분 후 만료
+    const upsertSql = `
+      INSERT INTO email_verifications (email, code, expires_at, verified)
+      VALUES (?, ?, ?, false)
+      ON DUPLICATE KEY UPDATE code = ?, expires_at = ?, verified = false
+    `;
+    await connection.query(upsertSql, [email, code, expires_at, code, expires_at]);
+    await emailService.sendVerificationEmail(email, code);
+    return success(res, '인증번호가 발송되었습니다. 10분 이내에 입력해주세요.');
+  } catch (error) {
+    console.error('Server Error:', error);
+    if (error.message.includes('인증 이메일 발송에 실패')) {
+      return fail(res, '이메일 발송 중 오류가 발생했습니다. 관리자에게 문의하세요.', 500);
+    }
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 15. 비밀번호 재설정 - 새 비밀번호 설정
+ */
+exports.resetPassword = async (req, res) => {
+  let connection;
+  try {
+    const { email, password, password_confirm } = req.body;
+    if (!email || !password || !password_confirm) {
+      return fail(res, '모든 필드를 입력해주세요.', 400);
+    }
+    if (password !== password_confirm) {
+      return fail(res, '비밀번호가 일치하지 않습니다.', 400);
+    }
+    if (!validatePassword(password)) {
+      return fail(res, '영문, 숫자 포함 최소 8자로 입력해주세요.', 400);
+    }
+    connection = await pool.getConnection();
+    const sql = 'SELECT * FROM email_verifications WHERE email = ?';
+    const [rows] = await connection.query(sql, [email]);
+    if (rows.length === 0) return fail(res, '인증번호 요청 내역이 없습니다.', 404);
+    const verification = rows[0];
+    if (!verification.verified) {
+      return fail(res, '이메일 인증이 완료되지 않았습니다.', 403);
+    }
+
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // 비밀번호 업데이트 및 인증 정보 삭제
+    await connection.query('UPDATE users SET password = ? WHERE email = ?', [hashedPassword, email]);
+    await connection.query('DELETE FROM email_verifications WHERE email = ?', [email]);
+
+    return success(res, '비밀번호가 재설정되었습니다.');
+  } catch (error) {
+    console.error('Server Error:', error);
+    return fail(res, '서버 에러가 발생했습니다.', 500);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * 16. 토큰 재발급 (Refresh Token 검증)
  */
 exports.refreshToken = async (req, res) => {
   let connection;
@@ -1026,7 +1182,7 @@ exports.refreshToken = async (req, res) => {
 
     // 3. DB에서 해당 유저의 Refresh Token 조회
     const [users] = await connection.query(
-      'SELECT * FROM users WHERE id = ?', 
+      'SELECT * FROM users WHERE id = ?',
       [decodedAccess.id]
     );
 
@@ -1062,7 +1218,7 @@ exports.refreshToken = async (req, res) => {
       );
       if (profiles.length > 0) nickname = profiles[0].org_name;
     }
-    
+
     const isFirstLogin = (user.is_first_login === 0 || user.is_first_login === false);
 
     // 6. 새로운 Access Token 발급

@@ -18,7 +18,7 @@ async function validateDomain(url) {
     const matchedDomain = allowedDomains.find(d => matchWildcard(d.domain_pattern, url));
 
     if (!matchedDomain) {
-      return { allowed: false, message: '허용되지 않은 도메인의 링크입니다. 공식 청원/서명 링크를 입력해주세요.' };
+      return { allowed: false, message: '공식 청원/서명/탄원 링크만 등록할 수 있어요' };
     }
 
     return {

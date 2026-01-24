@@ -80,8 +80,19 @@ exports.createPost = async (req, res) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-
         const user_id = req.user.id;
+
+        /*
+        // 하루 게시글 2개 초과 검사
+        const [countRows] = await connection.query(
+            'SELECT COUNT(*) as count FROM boards WHERE user_id = ? AND DATE(created_at) = CURDATE()',
+            [user_id]
+        );
+        if (countRows[0].count >= 2) {
+            throw new Error("하루 게시글 등록 가능 개수를 초과했습니다."); //
+        }
+        */
+
         const { 
             participation_type, title, topics, content, 
             start_date, start_time, end_date, end_time, 
@@ -147,7 +158,7 @@ exports.createPost = async (req, res) => {
             topicMap[row.name.trim()] = row.id;
         });
 
-        // 2. 입력받은 topicList를 순회하며 ID로 변환
+        // 2. 입력받은 topicList를 순회하며 유효한 ID만 추출
         const topicValues = [];
         const missingTopics = [];
 
@@ -156,19 +167,26 @@ exports.createPost = async (req, res) => {
             const topicId = topicMap[trimmedName];
             
             if (topicId) {
-                topicValues.push([newBoardId || id, topicId]); // create면 newBoardId, update면 id
+                // [참고] create 함수면 newBoardId, update 함수면 id를 사용하게끔 처리
+                topicValues.push([newBoardId || id, topicId]); 
             } else {
-                // DB에 없는 토픽이 들어온 경우 기록
+                // DB에 없는 토픽이 들어온 경우 기록 (디버깅용)
                 missingTopics.push(trimmedName);
             }
         });
 
-        // 3. 예외 처리: 입력한 토픽 중 DB에 없는 것이 있다면 에러 발생 (선택 사항)
+        // 3. 존재하지 않는 토픽이 입력된 경우 서버 로그에 출력
         if (missingTopics.length > 0) {
             console.error(`❌ DB에 존재하지 않는 토픽 입력됨: ${missingTopics.join(', ')}`);
-            // 유저에게 정확한 피드백을 주고 싶다면 아래 주석을 해제하세요.
-            // throw new Error(`존재하지 않는 의제입니다: ${missingTopics.join(', ')}`);
         }
+
+        // 4. [핵심] 유효한 토픽이 단 하나도 없다면 에러를 던져 저장 중단 (main 의도)
+        if (topicValues.length === 0) {
+            throw new Error("유효하지 않은 의제입니다. 등록된 의제 중에서 선택해주세요.");
+        }
+
+        // 5. 최종적으로 DB에 매핑 정보 삽입
+        await connection.query('INSERT INTO board_topics (board_id, topic_id) VALUES ?', [topicValues]);
 
         // 4. 최종 저장
         if (topicValues.length > 0) {
@@ -237,7 +255,17 @@ exports.createPost = async (req, res) => {
         return success(res, { postId: newBoardId }, '등록되었습니다.');
     } catch (error) {
         if (connection) await connection.rollback();
-        return fail(res, error.message, 400);
+        // 예외 문구 처리
+        const userMessages = [
+            "하루 게시글 등록 가능 개수를 초과했습니다.",
+            "유효하지 않은 의제입니다. 등록된 의제 중에서 선택해주세요."
+        ];
+
+        // 직접 정의한 에러 메시지가 아니면 서버 오류 메시지로 대체
+        const finalMessage = userMessages.includes(error.message) 
+            ? error.message 
+            : "일시적인 오류로 게시글을 등록하지 못했습니다. 잠시 후 다시 시도해주세요.";
+        return fail(res, finalMessage, 400);
     } finally {
         connection.release();
     }
@@ -430,13 +458,22 @@ exports.reportPost = async (req, res) => {
     const connection = await pool.getConnection();
     try {
         const reporterId = req.user.id; 
-        const { id } = req.params;
+        const { id } = req.params; // 신고할 게시글 ID
         const { reason } = req.body;
 
         if (!reason || reason.trim().length < 10) {
             return res.status(400).json({ success: false, message: '신고 사유를 10자 이상 입력해 주세요.' });
         }
 
+        // 1. 게시글이 실제로 존재하는지 먼저 확인
+        const [boardExists] = await connection.query('SELECT id FROM boards WHERE id = ?', [id]);
+        
+        if (boardExists.length === 0) {
+            // 게시글이 없으면 DB 에러를 내지 않고 404 응답을 보냄
+            return res.status(404).json({ success: false, message: '존재하지 않거나 삭제된 게시글은 신고할 수 없습니다.' });
+        }
+
+        // 2. 게시글이 존재할 때만 신고 데이터 삽입
         const sql = `INSERT INTO reports (reporter_id, board_id, reason, status) VALUES (?, ?, ?, 'RECEIVED')`;
         await connection.query(sql, [reporterId, id, reason]);
 
@@ -472,6 +509,9 @@ exports.sharePost = async (req, res) => {
 /**
  * 6. 응원봉 클릭 (토글)
  */
+/**
+ * 6. 응원봉 클릭 (토글)
+ */
 exports.toggleCheer = async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -479,9 +519,21 @@ exports.toggleCheer = async (req, res) => {
         const userId = req.user.id;
         const { id } = req.params;
 
-        const [boardExists] = await connection.query('SELECT id FROM boards WHERE id = ?', [id]);
-        if (boardExists.length === 0) throw new Error('NOT_FOUND_BOARD');
+        // [1] 게시글 존재 여부 및 작성자 ID 확인
+        const [boardRows] = await connection.query('SELECT user_id FROM boards WHERE id = ?', [id]);
+        if (boardRows.length === 0) throw new Error('NOT_FOUND_BOARD');
         
+        const boardAuthorId = boardRows[0].user_id;
+
+        // [추가] 본인 게시글인 경우 응원봉 클릭 차단
+        if (boardAuthorId === userId) {
+            await connection.rollback();
+            return res.status(403).json({ 
+                success: false, 
+                message: '본인이 작성한 게시글에는 응원봉을 켤 수 없습니다.' 
+            });
+        }
+
         const [exists] = await connection.query('SELECT id FROM cheers WHERE user_id = ? AND board_id = ?', [userId, id]);
 
         let isCheered = false;
@@ -505,8 +557,13 @@ exports.toggleCheer = async (req, res) => {
             message: isCheered ? '응원봉을 켰습니다!' : '응원봉을 껐습니다.'
         });
     } catch (error) {
-        await connection.rollback();
+        if (connection) await connection.rollback();
         console.error('응원봉 처리 에러:', error);
+        
+        if (error.message === 'NOT_FOUND_BOARD') {
+            return res.status(404).json({ success: false, message: '게시글을 찾을 수 없습니다.' });
+        }
+        
         res.status(500).json({ success: false, message: '요청을 처리하지 못했습니다.' });
     } finally {
         connection.release();

@@ -41,44 +41,50 @@ const startCleanupTask = () => {
 };
 
 /**
- * 메일 발송 작업 (매일 10:00 실행)
+ * 메일링 작업
  */
 const startMailingTask = () => {
-    // 매일 오전 10시 실행
-    cron.schedule('0 10 * * *', async () => {
+    cron.schedule('0 * * * *', async () => {
         try {
             const now = new Date();
             const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][now.getDay()];
+            // 9시간을 빼자
+            const adjustedHour = (now.getHours() + 9) % 24;
+            const currentTime = `${String(adjustedHour).padStart(2, '0')}:00:00`;
 
-            console.log(`[${now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}] 메일링 작업 시작 (${dayOfWeek}요일)`);
+            console.log(`메일러가 활성화되었습니다. (${now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}) - 조회 시간: ${currentTime}`);
 
             const connection = await pool.getConnection();
 
             try {
-                // 1. 메일 수신 동의한 개인 사용자 조회
+                // 1. 사용자 조회 (9시간 빠른 시간으로 조회)
                 const usersSql = `
                     SELECT
                         u.id,
                         u.email,
                         ip.nickname,
                         ip.mailing_days,
+                        ip.mailing_time,
                         ip.interests
                     FROM users u
                     INNER JOIN individual_profiles ip ON u.id = ip.user_id
                     WHERE ip.mailing_consent = true
                       AND ip.mailing_days IS NOT NULL
+                      AND ip.mailing_time = ?
                       AND u.user_type = 'INDIVIDUAL'
                 `;
 
-                const [users] = await connection.query(usersSql);
+                const [users] = await connection.query(usersSql, [currentTime]);
 
                 if (users.length === 0) {
-                    console.log('메일 수신 동의한 사용자가 없습니다.');
+                    connection.release();
                     return;
                 }
 
                 let interestMailCount = 0;
                 let popularMailCount = 0;
+                let interestFailCount = 0;
+                let popularFailCount = 0;
 
                 for (const user of users) {
                     try {
@@ -86,7 +92,7 @@ const startMailingTask = () => {
                         try {
                             mailingDays = JSON.parse(user.mailing_days);
                         } catch (e) {
-                            console.error(`사용자 ${user.id}의 mailing_days 파싱 실패:`, e);
+                            console.error(`사용자 ${user.id}: mailing_days 파싱 실패:`, e);
                             continue;
                         }
 
@@ -102,13 +108,17 @@ const startMailingTask = () => {
                             const posts = await getInterestPostsForUser(connection, user.id, user.interests);
 
                             if (posts.length > 0) {
-                                // 랜덤으로 1개만 선택
-                                const randomPost = posts[Math.floor(Math.random() * posts.length)];
-                                await emailService.sendInterestPostsEmail(user.email, user.nickname, [randomPost]);
-                                interestMailCount++;
-                                console.log(`관심 분야 메일 발송: ${user.email}`);
+                                try {
+                                    // 랜덤으로 1개만 선택
+                                    const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                                    await emailService.sendInterestPostEmail(user.email, user.nickname, [randomPost]);
+                                    interestMailCount++;
+                                } catch (error) {
+                                    interestFailCount++;
+                                }
                             } else {
-                                console.log(`메일 발송 실패 사용자 ${user.email}: 발송할 관심 분야 게시글 없음`);
+                                console.log(`- 메일 발송 실패 사용자 ${user.email}: 발송할 관심 분야 게시글 없음`);
+                                interestFailCount++;
                             }
                         }
                         // 오늘이 두 번째 요일인 경우: 인기 게시글
@@ -116,36 +126,41 @@ const startMailingTask = () => {
                             const posts = await getPopularPostsForUser(connection, user.id, user.interests);
 
                             if (posts.length > 0) {
-                                // 랜덤으로 1개만 선택
-                                const randomPost = posts[Math.floor(Math.random() * posts.length)];
-                                await emailService.sendPopularPostsEmail(user.email, user.nickname, [randomPost]);
-                                popularMailCount++;
-                                console.log(`인기 게시글 메일 발송: ${user.email}`);
+                                try {
+                                    const maxCheerCount = Math.max(...posts.map(p => p.cheer_count));
+                                    const topPosts = posts.filter(p => p.cheer_count === maxCheerCount);
+                                    const randomPost = topPosts[Math.floor(Math.random() * topPosts.length)];
+                                    await emailService.sendPopularPostEmail(user.email, user.nickname, [randomPost]);
+                                    popularMailCount++;
+                                } catch (error) {
+                                    popularFailCount++;
+                                }
                             } else {
-                                console.log(`메일 발송 실패 사용자 ${user.email}: 발송할 인기 게시글 없음`);
+                                console.log(`- 메일 발송 실패 사용자 ${user.email}: 발송할 인기 게시글 없음`);
+                                popularFailCount++;
                             }
                         }
 
                     } catch (userError) {
-                        console.error(`사용자 ${user.email} 메일 발송 실패:`, userError);
+                        console.error(`사용자 ${user.id}: 처리 중 오류 발생:`, userError);
                     }
                 }
 
-                console.log(`메일링 작업 완료: 관심분야 ${interestMailCount}건, 인기글 ${popularMailCount}건`);
+                console.log(`메일 발송 결과 - 관심분야: ${interestMailCount}건 성공 / ${interestFailCount}건 실패, 인기글: ${popularMailCount}건 성공 / ${popularFailCount}건 실패`);
 
             } finally {
                 connection.release();
             }
 
         } catch (error) {
-            console.error('메일링 스케줄러 작업 중 오류 발생:', error);
+            console.error('메일링 스케줄러 오류:', error);
         }
     }, {
         scheduled: true,
         timezone: "Asia/Seoul"
     });
 
-    console.log('매일 오전 10시 메일링 스케줄러가 활성화되었습니다.');
+    console.log('매일 정각 메일링 스케줄러가 활성화되었습니다');
 };
 
 /**
@@ -157,7 +172,7 @@ async function getInterestPostsForUser(connection, userId, interests) {
         try {
             interestArray = JSON.parse(interests);
         } catch (e) {
-            console.error(`사용자 ${userId}의 interests 파싱 실패:`, e);
+            console.error(`사용자 ${userId}의 관심 분야 파싱 실패:`, e);
             return [];
         }
 
@@ -174,19 +189,29 @@ async function getInterestPostsForUser(connection, userId, interests) {
 
         const topicIds = topics.map(t => t.id);
 
-        // 관심 분야 게시글 중 응원하지 않은 게시글 조회 (최근 7일)
+        // 7일 이내의 관심 분야 게시글 중 미응원 게시글 조회
         const postsSql = `
             SELECT DISTINCT
                 b.id,
                 b.title,
                 b.content,
                 b.link,
+                b.participation_type,
+                b.start_date,
+                b.end_date,
+                b.region,
+                b.district,
                 b.created_at,
-                GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') as topics
+                GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') as topics,
+                op.org_name as organization_name,
+                u.user_type as organization_type,
+                (SELECT COUNT(*) FROM cheers WHERE board_id = b.id) as cheer_count
             FROM boards b
             INNER JOIN board_topics bt ON b.id = bt.board_id
             INNER JOIN topics t ON bt.topic_id = t.id
             LEFT JOIN cheers c ON b.id = c.board_id AND c.user_id = ?
+            LEFT JOIN users u ON b.user_id = u.id
+            LEFT JOIN organization_profiles op ON u.id = op.user_id
             WHERE bt.topic_id IN (?)
               AND c.id IS NULL
               AND b.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
@@ -214,33 +239,41 @@ async function getPopularPostsForUser(connection, userId, interests) {
         try {
             interestArray = JSON.parse(interests);
         } catch (e) {
-            console.error(`사용자 ${userId}의 interests 파싱 실패:`, e);
+            console.error(`사용자 ${userId}의 관심 분야 파싱 실패:`, e);
             return [];
         }
 
         let excludeTopicIds = [];
 
         if (Array.isArray(interestArray) && interestArray.length > 0) {
-            // 사용자의 관심 분야에 해당하는 topic_id 조회
             const topicSql = `SELECT id FROM topics WHERE name IN (?)`;
             const [topics] = await connection.query(topicSql, [interestArray]);
             excludeTopicIds = topics.map(t => t.id);
         }
 
-        // 관심 분야 외 게시글 중 최근 7일간 응원봉이 많은 게시글 조회
+        // 관심 분야 외 7일 이내 게시글 중 응원봉이 가장 많은 게시글 조회
         let postsSql = `
             SELECT
                 b.id,
                 b.title,
                 b.content,
                 b.link,
+                b.participation_type,
+                b.start_date,
+                b.end_date,
+                b.region,
+                b.district,
                 b.created_at,
                 GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') as topics,
+                op.org_name as organization_name,
+                u.user_type as organization_type,
                 COUNT(DISTINCT c.id) as cheer_count
             FROM boards b
             INNER JOIN board_topics bt ON b.id = bt.board_id
             INNER JOIN topics t ON bt.topic_id = t.id
             LEFT JOIN cheers c ON b.id = c.board_id
+            LEFT JOIN users u ON b.user_id = u.id
+            LEFT JOIN organization_profiles op ON u.id = op.user_id
             WHERE b.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
         `;
 
