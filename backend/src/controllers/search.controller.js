@@ -2,6 +2,8 @@ const { Client } = require('@elastic/elasticsearch');
 const esClient = new Client({ node: process.env.ELASTICSEARCH_NODE || 'http://elasticsearch:9200' });
 const pool = require('../../db');
 
+
+
 // [Helper] 날짜 포맷 변환 (yyyy-MM-dd HH:mm:ss)
 const toEsDate = (dateStr) => {
     if (!dateStr) return null;
@@ -229,12 +231,31 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 /**
  * 정렬 스크립트 파라미터 생성 헬퍼
  */
+/*
 const getSortParams = () => {
     const now = new Date();
     return {
         now: now.getTime(),
         dayStart: new Date(now.setHours(0, 0, 0, 0)).getTime(),
         dayEnd: new Date(now.setHours(23, 59, 59, 999)).getTime()
+    };
+};*/
+
+const getSortParams = () => {
+    const now = new Date();
+    // 한국 시간은 UTC보다 9시간 빠름
+    const kstOffset = 9 * 60 * 60 * 1000;
+    
+    // 1. 현재 시간을 KST 기준으로 변환
+    const kstNow = new Date(now.getTime() + kstOffset);
+    
+    // 2. KST 기준 오늘 00:00:00과 23:59:59의 시점을 UTC 숫자로 계산
+    const dayStart = new Date(kstNow.getFullYear(), kstNow.getMonth(), kstNow.getDate(), 0, 0, 0, 0).getTime() - kstOffset;
+    const dayEnd = new Date(kstNow.getFullYear(), kstNow.getMonth(), kstNow.getDate(), 23, 59, 59, 999).getTime() - kstOffset;
+
+    return {
+        dayStart: dayStart,
+        dayEnd: dayEnd
     };
 };
 
@@ -295,26 +316,32 @@ exports.searchPosts = async (req, res) => {
             index: 'boards',
             from, size,
             query: esQuery.bool.must.length > 0 || esQuery.bool.filter.length > 0 ? esQuery : { match_all: {} },
-            sort: [
-                {
-                    _script: {
-                        type: "number",
-                        script: {
-                            lang: "painless",
-                            source: `
-                                if (doc['end_date'].size() == 0) return 2;
-                                long end = doc['end_date'].value.toInstant().toEpochMilli();
-                                if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
-                                if (end > params.dayEnd) return 1; // 미래 종료
-                                return 3; // 마감됨
-                            `,
-                            params: getSortParams()
-                        },
-                        order: "asc"
-                    }
-                },
-                { "created_at": { "order": "desc" } } // 그 외 최신순
-            ]
+            // searchPosts와 getAllPosts의 sort 부분을 아래 내용으로 교체하세요.
+        sort: [
+            {
+                _script: {
+                    type: "number",
+                    script: {
+                        lang: "painless",
+                        source: `
+                            // 1. 마감일 없으면 상시(2)
+                            if (doc['end_date'].size() == 0) return 2;
+
+                            // 2. 저장된 마감 시간을 절대적인 숫자(밀리초)로 추출
+                            long end = doc['end_date'].value.toInstant().toEpochMilli();
+
+                            // 3. 숫자로 직접 비교 (타임존 설정 무관하게 정확함)
+                            if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
+                            if (end > params.dayEnd) return 1; // 미래 종료
+                            return 3; // 과거 종료 (마감됨)
+                        `,
+                        params: getSortParams()
+                    },
+                    order: "asc"
+                }
+            },
+            { "created_at": { "order": "desc" } }
+        ]
         });
 
         const cardData = await enrichDataWithMySQL(response.hits.hits.map(hit => hit._source), req.user?.id);
@@ -339,6 +366,7 @@ exports.getAllPosts = async (req, res) => {
             index: 'boards',
             from, size,
             query: { match_all: {} },
+            // searchPosts와 getAllPosts의 sort 부분을 아래 내용으로 교체하세요.
             sort: [
                 {
                     _script: {
@@ -346,11 +374,16 @@ exports.getAllPosts = async (req, res) => {
                         script: {
                             lang: "painless",
                             source: `
+                                // 1. 마감일 없으면 상시(2)
                                 if (doc['end_date'].size() == 0) return 2;
+
+                                // 2. 저장된 마감 시간을 절대적인 숫자(밀리초)로 추출
                                 long end = doc['end_date'].value.toInstant().toEpochMilli();
-                                if (end >= params.dayStart && end <= params.dayEnd) return 0;
-                                if (end > params.dayEnd) return 1;
-                                return 3;
+
+                                // 3. 숫자로 직접 비교 (타임존 설정 무관하게 정확함)
+                                if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 종료
+                                if (end > params.dayEnd) return 1; // 미래 종료
+                                return 3; // 과거 종료 (마감됨)
                             `,
                             params: getSortParams()
                         },
