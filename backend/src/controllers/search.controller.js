@@ -219,6 +219,7 @@ const getSortParams = () => {
 
 // [핵심 정렬 로직]
 const commonSort = [
+  // 1️⃣ 그룹 분류
   {
     _script: {
       type: "number",
@@ -229,25 +230,42 @@ const commonSort = [
 
           long end = doc['end_date'].value.toInstant().toEpochMilli();
 
-          // 이미 마감
-          if (end < params.now) return 3;
-
-          // 오늘(KST) 마감
-          if (end >= params.dayStart && end <= params.dayEnd) return 0;
-
-          // 미래 마감
-          return 1;
+          if (end < params.now) return 3; // 마감
+          if (end >= params.dayStart && end <= params.dayEnd) return 0; // 오늘 마감
+          return 1; // 미래
         `,
         params: getSortParams()
       },
       order: "asc"
     }
   },
+
+  // 2️⃣ 오늘 마감인 경우만 end_date 기준 (그 외는 큰 값으로 밀어버림)
   {
-    "end_date": { "order": "asc", "missing": "_last" }
+    _script: {
+      type: "number",
+      script: {
+        lang: "painless",
+        source: `
+          if (doc['end_date'].size() == 0) return 999999999999L;
+
+          long end = doc['end_date'].value.toInstant().toEpochMilli();
+
+          // 오늘 마감 그룹만 실제 end_date 사용
+          if (end >= params.dayStart && end <= params.dayEnd) {
+            return end;
+          }
+
+          // 나머지는 동일한 값으로 처리 → 다음 정렬(created_at)로 넘어감
+          return 999999999999L;
+        `,
+        params: getSortParams()
+      },
+      order: "asc"
+    }
   },
 
-  // 🔹 2순위: 각 그룹 안에서 최신 등록순
+  // 3️⃣ 최종: 등록 최신순 (오늘 제외한 전부 여기에 영향)
   {
     "created_at": { "order": "desc", "missing": "_last" }
   }
