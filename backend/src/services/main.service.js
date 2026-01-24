@@ -154,6 +154,7 @@ async function enrichData(results, currentUserId = null) {
             : 0;
 
         // D-Day
+        /*
         let dDay = "상시";
         let isTodayEnd = false;
         if (post.end_date) {
@@ -164,7 +165,40 @@ async function enrichData(results, currentUserId = null) {
             if (diffDays === 0) { dDay = "D-0"; isTodayEnd = true; } 
             else if (diffDays < 0) { dDay = "마감"; } 
             else { dDay = `D-${diffDays}`; }
+        }*/
+        // D-Day (정확한 현재 시각 기준 계산)
+
+
+        let dDay = "상시";
+        let isTodayEnd = false;
+
+        if (post.end_date) {
+            const now = new Date();                  // 지금 시각
+            const endDate = new Date(post.end_date); // 종료 시각
+
+            const diffMs = endDate.getTime() - now.getTime();
+
+            // 🔴 이미 지난 경우 → 무조건 마감
+            if (diffMs <= 0) {
+                dDay = "마감";
+                isTodayEnd = false;
+            } 
+            else {
+                const oneDayMs = 1000 * 60 * 60 * 24;
+
+                // 🔹 24시간 이내 남았으면 "오늘 마감"
+                if (diffMs <= oneDayMs) {
+                    dDay = "D-0";
+                    isTodayEnd = true;
+                } 
+                else {
+                    const diffDays = Math.ceil(diffMs / oneDayMs);
+                    dDay = `D-${diffDays}`;
+                    isTodayEnd = false;
+                }
+            }
         }
+
 
         const format = (d, t) => {
             if (!d) return "";
