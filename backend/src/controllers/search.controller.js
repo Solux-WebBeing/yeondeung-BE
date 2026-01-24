@@ -106,22 +106,23 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 
         const totalCount = cheerMap[post.id] || 0;
         const specificInterestCount = (cheererInterestMap[post.id] && cheererInterestMap[post.id][displayTopic]) || 0;
-
-        // D-Day UI 계산
+        // D-Day UI 계산 (KST 강제 보정, 라이브러리 없이)
         let dDay = "상시";
         let isTodayEnd = false;
 
         if (post.end_date) {
+            // 🔥 한국 시간 기준 now 만들기
             const now = new Date();
-            const endDate = new Date(post.end_date);
+            const nowKST = new Date(now.getTime() + 9 * 60 * 60 * 1000);
 
-            // 🔴 이미 시간이 지난 경우 → 무조건 마감
-            if (endDate.getTime() < now.getTime()) {
+            // 🔥 end_date도 KST로 해석되도록 직접 파싱
+            const endDate = new Date(post.end_date.replace(" ", "T") + ":00");
+
+            if (endDate.getTime() < nowKST.getTime()) {
                 dDay = "마감";
                 isTodayEnd = false;
             } else {
-                // 아직 안 지난 경우 → 날짜 단위 D-Day 계산
-                const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                const todayMidnight = new Date(nowKST.getFullYear(), nowKST.getMonth(), nowKST.getDate()).getTime();
                 const endMidnight = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
                 const diffDays = Math.ceil((endMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
 
@@ -134,6 +135,7 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
                 }
             }
         }
+
 
 
 
