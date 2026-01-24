@@ -167,18 +167,35 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 // [핵심 수정 2] 정렬 파라미터 계산 (KST 기준을 UTC 숫자로 정확히 변환)
 const getSortParams = () => {
     const now = new Date();
-    const kstOffset = 9 * 60 * 60 * 1000;
-    const kstNow = new Date(now.getTime() + kstOffset);
-    
-    // 한국 시간 기준 오늘 00:00과 23:59를 구한 뒤, 다시 UTC 타임스탬프로 변환
-    // 이렇게 해야 ES에 저장된 ISO(UTC) 시간과 정확히 매칭됨
-    const dayStart = new Date(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 0, 0, 0, 0).getTime() - kstOffset;
-    const dayEnd = new Date(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 23, 59, 59, 999).getTime() - kstOffset;
+    // 1. 현재 시간을 기준으로 한국 시간(KST) 날짜 성분을 추출
+    // toLocaleString을 써서 서버 타임존 무시하고 한국 시간 강제 추출
+    const kstString = now.toLocaleString("en-US", { timeZone: "Asia/Seoul" });
+    const kstDate = new Date(kstString);
 
+    // 2. 한국 시간 기준 "오늘 00:00"과 "23:59"의 년/월/일 추출
+    const y = kstDate.getFullYear();
+    const m = kstDate.getMonth();
+    const d = kstDate.getDate();
+
+    // 3. 이를 UTC 타임스탬프로 변환 (한국 시간은 UTC-9니까 -9시간 적용된 값으로 생성)
+    // Date.UTC(y, m, d, 0, 0, 0) -> 한국시간 0시가 아니라 UTC 0시임.
+    // 그래서 한국시간 0시는 UTC 전날 15시. 
+    // 복잡하니까 가장 확실한 방법: "한국시간 00시" 문자열을 만들어서 Date 객체로 변환
+    
+    // 더 쉬운 방법: 오프셋 수동 계산 (이게 제일 빠르고 정확함)
+    const kstOffset = 9 * 60 * 60 * 1000;
+    const utcNow = now.getTime() + (now.getTimezoneOffset() * 60000); // 순수 UTC 밀리초
+    const kstNowMs = utcNow + kstOffset; // KST 밀리초
+    
+    const kstDateObj = new Date(kstNowMs);
+    const kstTodayStart = new Date(kstDateObj.getFullYear(), kstDateObj.getMonth(), kstDateObj.getDate(), 0, 0, 0, 0).getTime();
+    const kstTodayEnd = new Date(kstDateObj.getFullYear(), kstDateObj.getMonth(), kstDateObj.getDate(), 23, 59, 59, 999).getTime();
+    
+    // 4. ES에 보낼때는 다시 UTC 기준으로 맞춰서 보냄 (KST 값을 그대로 비교하면 안됨)
     return {
         now: now.getTime(),
-        dayStart: dayStart,
-        dayEnd: dayEnd
+        dayStart: kstTodayStart - kstOffset, // 한국 00시 -> UTC 15시(전날)
+        dayEnd: kstTodayEnd - kstOffset      // 한국 23시 -> UTC 14시(오늘)
     };
 };
 
