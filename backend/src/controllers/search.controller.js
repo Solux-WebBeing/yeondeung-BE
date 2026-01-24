@@ -106,23 +106,45 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
 
         const totalCount = cheerMap[post.id] || 0;
         const specificInterestCount = (cheererInterestMap[post.id] && cheererInterestMap[post.id][displayTopic]) || 0;
-
-        // D-Day UI 계산
+        // D-Day UI 계산 (KST 강제 보정, 라이브러리 없이)
+        // D-Day UI 계산 (KST 강제 보정, 라이브러리 없이)
         let dDay = "상시";
         let isTodayEnd = false;
 
         if (post.end_date) {
+            // 🔥 한국 현재 시간 만들기 (KST)
             const now = new Date();
-            const endDate = new Date(post.end_date);
+            const nowKST = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+
+            // 🔥 end_date 문자열을 KST 기준으로 안전 파싱
+            // 예: "2026-01-24 15:00" → "2026-01-24T15:00:00"
+            let endStr = post.end_date;
+            if (typeof endStr === "string" && endStr.includes(" ")) {
+                endStr = endStr.replace(" ", "T");
+                if (endStr.length === 16) endStr += ":00"; // 초 없으면 추가
+            }
+            const endDate = new Date(endStr);
 
             // 🔴 이미 시간이 지난 경우 → 무조건 마감
-            if (endDate.getTime() < now.getTime()) {
+            if (endDate.getTime() < nowKST.getTime()) {
                 dDay = "마감";
                 isTodayEnd = false;
             } else {
-                // 아직 안 지난 경우 → 날짜 단위 D-Day 계산
-                const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                const endMidnight = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+                // 날짜 단위 D-Day 계산 (KST 기준)
+                const todayMidnight = new Date(
+                    nowKST.getFullYear(),
+                    nowKST.getMonth(),
+                    nowKST.getDate(),
+                    0, 0, 0, 0
+                ).getTime();
+
+                const endMidnight = new Date(
+                    endDate.getFullYear(),
+                    endDate.getMonth(),
+                    endDate.getDate(),
+                    0, 0, 0, 0
+                ).getTime();
+
                 const diffDays = Math.ceil((endMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
 
                 if (diffDays === 0) {
@@ -134,6 +156,7 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
                 }
             }
         }
+
 
 
 
