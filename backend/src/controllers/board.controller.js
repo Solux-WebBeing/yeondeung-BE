@@ -20,7 +20,7 @@ const validateTimeFormat = (time) => {
 /**
  * [Helper] ImgBB 이미지 업로드 함수
  */
-const uploadToImgBB = async (fileBuffer) => {
+/*const uploadToImgBB = async (fileBuffer) => {
     try {
         const apiKey = process.env.IMGBB_API_KEY;
         if (!apiKey) throw new Error('ImgBB API Key가 설정되지 않았습니다.');
@@ -33,6 +33,42 @@ const uploadToImgBB = async (fileBuffer) => {
         });
 
         return response.data.data.url;
+    } catch (error) {
+        console.error('ImgBB Upload Error:', error.response?.data || error.message);
+        throw new Error('이미지 업로드 중 오류가 발생했습니다.');
+    }
+};*/
+
+const uploadToImgBB = async (fileBuffer) => {
+    try {
+        const apiKey = process.env.IMGBB_API_KEY;
+        if (!apiKey) throw new Error('ImgBB API Key가 설정되지 않았습니다.');
+
+        const formData = new FormData();
+        
+        // [수정 1] Base64로 변환하지 말고 Buffer를 직접 전송 (파일명 옵션 필수)
+        // 이렇게 해야 서버가 원본 파일 그대로 인식하며, 속도도 훨씬 빠릅니다.
+        formData.append('image', fileBuffer, {
+            filename: 'upload.jpg', // 파일명이 없으면 API가 거부할 수 있음
+            contentType: 'image/jpeg' // 필요시 mime type 지정
+        });
+
+        // (선택) 180일 후 자동 삭제 등 옵션이 필요하면 추가
+        // formData.append('expiration', 15552000); 
+
+        const response = await axios.post(`https://api.imgbb.com/1/upload?key=${apiKey}`, formData, {
+            headers: formData.getHeaders(),
+            maxContentLength: Infinity, // 큰 이미지 업로드 시 axios 제한 해제
+            maxBodyLength: Infinity
+        });
+
+        // [디버깅용 로그] 실제로 업로드된 크기가 몇인지 확인해보세요
+        console.log(`Uploaded Size: ${response.data.data.width}x${response.data.data.height}`);
+
+        // [수정 2] data.url 대신 data.image.url 사용
+        // data.url도 원본을 가리키지만, data.image.url이 '원본 파일'을 더 명시적으로 가리킵니다.
+        return response.data.data.image.url; 
+
     } catch (error) {
         console.error('ImgBB Upload Error:', error.response?.data || error.message);
         throw new Error('이미지 업로드 중 오류가 발생했습니다.');
