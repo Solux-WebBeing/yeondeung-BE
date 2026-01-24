@@ -1,29 +1,74 @@
-# YEONDEUNG-BE (연등 백엔드)
+# 🕯️ 연등 - 백엔드 레포지토리
+```textplain
+〔  ＼│/  〕   흩어진 연대를 잇는 따뜻한 불빛
+(  연  등  )   연대 활동 정보의 모든 것, 
+ "*. __ .*"    지금 바로 [연등]에서 확인하세요.
+```
+## 팀원 소개
+| 홍서현 | 곽해림 | 송서현 |
+|--------|--------|--------|
+| BE Lead     | BE     | BE     |
+| [@SH38038038](https://github.com/SH38038038) | [@Tulipurple](https://github.com/Tulipurple) | [@Hiimynameiss](https://github.com/Hiimynameiss) |
+| <img src="https://avatars.githubusercontent.com/SH38038038" width="100"> | <img src="https://avatars.githubusercontent.com/Tulipurple" width="100"> | <img src="https://avatars.githubusercontent.com/Hiimynameiss" width="100"> 
 
+# 시스템 아키텍처
+```mermaid
+flowchart TD
+    %% --- 디자인 시스템 ---
+    classDef edge fill:#E1F5FE,stroke:#01579B,stroke-width:2px
+    classDef aws fill:#FFF3E0,stroke:#E65100,stroke-width:2px
+    classDef logic fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+    classDef data fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px
+    classDef ai fill:#E0F2F1,stroke:#00796B,stroke-width:2px,stroke-dasharray: 5 5
 
-## 🚀 개발 환경 실행 방법
+    subgraph Global_Edge ["🌍 Layer 7: Frontend & Masking"]
+        User(("👤 User\n(Browser)"))
+        FB_H["🔥 Firebase Hosting\n(Static Assets)"]:::edge
+        FB_R["🛡️ Cloud Rewrites\n(API Masking Proxy)"]:::edge
+    end
 
-이 프로젝트는 Docker Compose를 사용하여 모든 개발 환경을 1분 안에 구축할 수 있습니다.
+    subgraph AWS_EC2 ["☁️ AWS Hardened Host (Docker Engine)"]
+        direction TB
+        
+        subgraph Security_Gate ["🔒 Security Layer"]
+            Cert_Bot["🔒 Certbot\n(SSL Auto-Renewal)"]:::aws
+            DuckDNS["🦆 DuckDNS\n(DDNS Endpoint)"]:::aws
+        end
 
-1.  **Docker Desktop**을 설치하고 실행합니다.
+        subgraph Container_Mesh ["🐳 Isolated Docker Network"]
+            direction TB
+            subgraph App_Cluster ["🧠 Logic Tier"]
+                Node_App["🧩 Node.js API\n(SSL Termination)"]:::logic
+                AI_Logic["🤖 OpenAI Pipeline"]:::ai
+            end
+            
+            subgraph Data_Tier ["💾 Persistence Tier"]
+                direction LR
+                MySQL[("🐬 MySQL 8.0")]:::data
+                Redis[("🔴 Redis Cache")]:::data
+                ES[("🔎 Elasticsearch")]:::data
+            end
+        end
+    end
 
-2.  이 저장소(repository)를 `git clone` 받습니다.
-    ```bash
-    git clone https://github.com/Solux-WebBeing/yeondeung-BE.git
-    ```
+    Gemini_API[("🧠 OpenAI API")]:::ai
 
-3.  **.env 파일 생성**
-    `.env.example` 파일을 복사하여 `.env` 파일을 만듭니다.
-    ```bash
-    cp .env.example .env
-    ```
+    %% --- 데이터 흐름 ---
+    User -- "HTTPS / TLS 1.3" --> FB_H
+    FB_H -- "Path Masking" --> FB_R
+    FB_R == "Secure Tunnel" ==> DuckDNS
+    
+    DuckDNS --> Node_App
+    Cert_Bot -. "SSL Certificate" .-> Node_App
+    
+    Node_App <--> AI_Logic
+    AI_Logic -- "External Request" --> Gemini_API
+    
+    Node_App <--> MySQL
+    Node_App <--> Redis
+    Node_App <--> ES
 
-4.  **.env 파일 수정**
-    방금 생성한 `.env` 파일을 열어, 비어있는 `DB_PASSWORD`와 `JWT_SECRET` 값을 (팀원 간에 공유된) 실제 값으로 채워넣습니다. (노션 참고)
-
-5.  **Docker 컨테이너 실행**
-    ```bash
-    docker-compose up -d --build #코드 수정시 빌드 필요 (코드 수정 없이 그냥 확인만 필요하면 옵션 제거)
-    ```
-
-6.  완료! 브라우저에서 `http://localhost:8000/api-docs`으로 접속하세요. (swagger에서 api 테스트 가능)
+    %% CI/CD
+    GHA["⚙️ GH Actions"] -. "Deploy" .-> FB_H
+    GHA -. "Docker Push/Up" .-> Node_App
+```
