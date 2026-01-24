@@ -635,7 +635,12 @@ exports.getOrgActivities = async (req, res) => {
   const limit = 4;
   const offset = (page - 1) * limit;
 
-  try { // 날짜, 지역, 태그, 응원 수 필드 추가
+  try {
+    // 해당 단체가 작성한 전체 게시글 개수 조회
+    const countSql = 'SELECT COUNT(*) as total FROM boards WHERE user_id = ?';
+    const [countRows] = await pool.query(countSql, [id]);
+    const total_count = countRows[0].total;
+
     const sql = `
       SELECT 
         b.id, b.title, b.start_date, b.end_date, b.region, b.district, b.topics, b.created_at,
@@ -658,7 +663,13 @@ exports.getOrgActivities = async (req, res) => {
       return success(res, '아직 등록한 연대 활동이 없어요.', { posts: [] });
     }
 
-    return success(res, '활동 조회 성공', { posts });
+    // 결과 반환
+    return success(res, '활동 조회 성공', { 
+      posts, 
+      total_count: total_count,
+      total_pages: Math.ceil(total_count / limit),
+      current_page: page
+    });
   } catch (error) {
     console.error('Get Org Activities Error:', error);
     return fail(res, '서버 에러가 발생했습니다.', 500);
@@ -863,6 +874,11 @@ exports.getIndividualActivities = async (req, res) => {
   const limit = 4;
   const offset = (page - 1) * limit;
   try {
+    // 전체 게시글 개수 조회 추가
+    const countSql = 'SELECT COUNT(*) as total FROM boards WHERE user_id = ?';
+    const [countRows] = await pool.query(countSql, [id]);
+    const total_count = countRows[0].total;
+
     // LIMIT와 OFFSET을 적용한 게시글 조회 쿼리
     const postSql = `
       SELECT 
@@ -887,7 +903,9 @@ exports.getIndividualActivities = async (req, res) => {
 
     return success(res, '활동 조회 성공', { 
       written_posts: posts, 
-      cheer_count: cheers[0].count 
+      total_count: total_count,
+      total_pages: Math.ceil(total_count / limit),
+      current_page: page
     });
   } catch (error) {
     console.error('Get Individual Activities Error:', error);
