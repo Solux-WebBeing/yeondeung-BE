@@ -122,8 +122,12 @@ exports.createPost = async (req, res) => {
         }
         const is_start_time_set = !!start_time;
         const is_end_time_set = !!end_time;
-        const finalStartDate = is_start_time_set ? `${start_date} ${start_time}:00` : `${start_date} 00:00:00`;
-        const finalEndDate = is_end_time_set ? `${end_date} ${end_time}:00` : `${end_date} 00:00:00`;
+        const finalStartDate = is_start_time_set 
+        ? `${start_date} ${start_time}:00` 
+        : `${start_date} 00:00:00`;
+            const finalEndDate = is_end_time_set 
+        ? `${end_date} ${end_time}:00` 
+        : `${end_date} 23:59:59`; 
 
         // [2] 의제 유효성 검사
         const topicList = topics.split(',').map(t => t.trim()).filter(t => t !== '');
@@ -257,9 +261,13 @@ exports.updatePost = async (req, res) => {
         if (!validateTimeFormat(start_time) || !validateTimeFormat(end_time)) throw new Error("시간 형식이 올바르지 않습니다.");
         const is_start_time_set = !!start_time;
         const is_end_time_set = !!end_time;
-        const finalStartDate = is_start_time_set ? `${start_date} ${start_time}:00` : `${start_date} 00:00:00`;
-        const finalEndDate = is_end_time_set ? `${end_date} ${end_time}:00` : `${end_date} 00:00:00`;
-
+        const finalStartDate = is_start_time_set 
+        ? `${start_date} ${start_time}:00` 
+        : `${start_date} 00:00:00`;
+            const finalEndDate = is_end_time_set 
+        ? `${end_date} ${end_time}:00` 
+        : `${end_date} 23:59:59`; 
+        
         // [MySQL Update]
         const isOfflineEvent = ['집회', '행사'].includes(participation_type);
         await connection.query(`
