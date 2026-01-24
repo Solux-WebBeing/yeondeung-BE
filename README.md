@@ -13,7 +13,7 @@
 | <img src="https://avatars.githubusercontent.com/SH38038038" width="100"> | <img src="https://avatars.githubusercontent.com/Tulipurple" width="100"> | <img src="https://avatars.githubusercontent.com/Hiimynameiss" width="100"> |
 | <small>🔎 인증 · 검색 · 배포</small> | <small>🤖 LLM · 크롤링 · 메일</small> | <small>📝 게시글 · 알림 · 관리자</small> |
 
-
+---
 
 ## 🛠️ 기술 스택 (Tech Stack)
 
