@@ -214,11 +214,15 @@ const getSortParams = () => {
     ).getTime();
 
     return {
-        now: utcNow,                              // 현재 시각 (UTC ms)
-        dayStart: kstTodayStart - kstOffset,      // KST 00:00 → UTC
-        dayEnd: kstTodayEnd - kstOffset           // KST 23:59 → UTC
+        // 🔥 KST 현재 시각을 UTC 기준으로 변환해서 사용
+        now: kstNowMs - kstOffset,
+
+        // KST 오늘 범위를 UTC 기준으로 변환
+        dayStart: kstTodayStart - kstOffset,
+        dayEnd: kstTodayEnd - kstOffset
     };
 };
+
 
 
 // [핵심 정렬 로직]
