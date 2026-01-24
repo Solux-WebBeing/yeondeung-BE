@@ -84,7 +84,7 @@ const sendVerificationEmail = async (toEmail, code) => {
  */
 const sendApprovalEmail = async (toEmail, orgName) => {
   // 로그인 페이지 URL (환경변수 또는 하드코딩)
-  const loginUrl = process.env.CLIENT_URL ? `${process.env.CLIENT_URL}/login` : 'http://localhost:3000/login';
+  const loginUrl = process.env.CLIENT_URL ? `${process.env.CLIENT_URL}/login` : 'https://yeondeung-b449c.web.app/login';
 
   const mailOptions = {
     from: `"연등 : 연대의 등불" <${process.env.EMAIL_FROM_ADDRESS}>`,
