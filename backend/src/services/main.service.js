@@ -200,7 +200,9 @@ async function enrichData(results, currentUserId = null) {
             isTodayEnd, 
             
             // [최종 메시지]
-            interestMessage: `${displayTopic} 의제에 관심이 있는 ${specificInterestCount}명이 연대합니다!`
+            interestMessage: `${displayTopic} 의제에 관심이 있는 ${specificInterestCount}명이 연대합니다!`,
+            interestTopic: displayTopic,
+            interestCounts: specificInterestCount
         };
     });
 }

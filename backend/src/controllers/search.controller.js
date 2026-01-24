@@ -219,7 +219,9 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
             
             // [최종 메시지]
             // 예: "여성 의제에 관심이 있는 5명이 연대합니다!"
-            interestMessage: `${displayTopic} 의제에 관심이 있는 ${specificInterestCount}명이 연대합니다!`
+            interestMessage: `${displayTopic} 의제에 관심이 있는 ${specificInterestCount}명이 연대합니다!`,
+            interestTopic: displayTopic,
+            interestCounts: specificInterestCount
         };
     });
 }
