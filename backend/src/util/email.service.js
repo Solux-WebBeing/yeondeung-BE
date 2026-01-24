@@ -413,9 +413,9 @@ const getEmailFooter = () => `
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
     <tr>
       <td align="center" style="color: #797979; font-size: 10px; padding-bottom: 8px;">
-        <a href="#" style="color: #797979; text-decoration: underline;">메일링 설정 변경</a>
+        <a href="https://yeondeung-b449c.web.app/mypage/personal" style="color: #797979; text-decoration: underline;">메일링 설정 변경</a>
         <span style="margin: 0 5px;">|</span>
-        <a href="#" style="color: #797979; text-decoration: underline;">수신 거부</a>
+        <a href="https://yeondeung-b449c.web.app/mypage/personal" style="color: #797979; text-decoration: underline;">수신 거부</a>
       </td>
     </tr>
   </table>
@@ -482,7 +482,7 @@ const getInterestPostTemplate = (userName, posts) => {
                       <td align="center" style="padding-bottom: 24px;">
                         <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;"> <tr>
                             <td class="button-cell" align="center" style="background-color: #FF7972; border-radius: 5px; padding: 10px 18px;">
-                              <a href="${post.link || '#'}" style="text-decoration: none; display: inline-block; line-height: 1;">
+                              <a href="https://yeondeung-b449c.web.app/posts/${post.id}" style="text-decoration: none; display: inline-block; line-height: 1;">
                                 <img src="cid:cheer_icon" alt="응원봉" width="20" height="20" style="display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin-right: 6px;" />
                                 <span class="button-text" style="color: #FFFFFF; font-size: 12px; font-weight: 600; vertical-align: middle; white-space: nowrap;">이 소식에 응원봉 밝히기</span>
                               </a>
@@ -569,7 +569,7 @@ const getPopularPostTemplate = (userName, posts) => {
                         <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
                           <tr>
                             <td class="button-cell" align="center" style="background-color: #FF7972; border-radius: 5px; padding: 10px 18px;">
-                              <a href="${post.link || '#'}" style="text-decoration: none; display: inline-block; line-height: 1;">
+                              <a href="https://yeondeung-b449c.web.app/posts/${post.id}" style="text-decoration: none; display: inline-block; line-height: 1;">
                                 <img src="cid:cheer_icon" alt="응원봉" width="20" height="20" style="display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin-right: 6px;" />
                                 <span class="button-text" style="color: #FFFFFF; font-size: 12px; font-weight: 600; vertical-align: middle; white-space: nowrap;">이 소식에 응원봉 밝히기</span>
                               </a>
@@ -592,7 +592,7 @@ const getPopularPostTemplate = (userName, posts) => {
                         <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
                           <tr>
                             <td class="outline-button-cell" align="center" style="border: 1px solid #FF7972; border-radius: 5px; padding: 8px 16px;">
-                              <a href="#" style="text-decoration: none; display: inline-block; line-height: 1;">
+                              <a href="https://yeondeung-b449c.web.app/" style="text-decoration: none; display: inline-block; line-height: 1;">
                                 <span style="color: #FF7972; font-size: 12px; font-weight: 600; white-space: nowrap;">더 많은 연대 살펴보기</span>
                               </a>
                             </td>
