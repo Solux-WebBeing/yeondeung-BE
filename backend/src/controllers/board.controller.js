@@ -408,55 +408,53 @@ exports.updatePost = async (req, res) => {
         // [ELK Update]
         // [ELK Update]
         try {
-        const boardId = id; // req.params.id
+            const boardId = id;
 
-        const esStartDate = toEsDate(finalStartDate);
-        const esEndDate   = toEsDate(finalEndDate);
+            const esStartDate = toEsDate(finalStartDate);
+            const esEndDate   = toEsDate(finalEndDate);
 
-        const { sort_group, sort_end } = calcSortFields(esEndDate); // 너가 위에서 쓰던 함수명으로 통일
+            const { sort_group, sort_end } = calculateSortFields(esEndDate);
 
-        await esClient.update({
-            index: 'boards',
-            id: String(boardId),
-            refresh: true,
-            doc_as_upsert: true, // ES에 문서가 없으면 생성까지
-            doc: {
-            id: Number(boardId),
-            user_id: userId,
-            host_type: req.user.user_type,
-            participation_type,
-            title,
-            topics: topicList,
-            content,
+            const resp = await esClient.update({
+                index: 'boards',
+                id: String(boardId),
+                refresh: true,
+                doc_as_upsert: true,
+                doc: {
+                id: Number(boardId),
+                user_id: userId,
+                host_type: req.user.user_type,
+                participation_type,
+                title,
+                topics: topicList,
+                content,
 
-            start_date: esStartDate,
-            end_date: esEndDate,
+                start_date: esStartDate,
+                end_date: esEndDate,
 
-            is_start_time_set,
-            is_end_time_set,
-            region: isOfflineEvent ? region : null,
-            district: isOfflineEvent ? district : null,
-            link: link || null,
+                is_start_time_set,
+                is_end_time_set,
+                region: isOfflineEvent ? region : null,
+                district: isOfflineEvent ? district : null,
+                link: link || null,
 
-            // 기존값 유지하려면 넣지 말고, 바꿀 거면 바꾸기
-            ai_verified: !!existingAiVerified, // 또는 네 정책대로
+                ai_verified: !!existingAiVerified,
 
-            suggest: {
-                input: buildSuggest(title, topicList),
-                weight: 10
-            },
+                suggest: buildSuggestInput(title, topicList),
+                thumbnail: finalImageUrls.length > 0 ? finalImageUrls[0] : null,
 
-            thumbnail: finalImageUrls.length > 0 ? finalImageUrls[0] : null,
+                sort_group,
+                sort_end,
 
-            sort_group,
-            sort_end,
+                updated_at: new Date().toISOString()
+                }
+            });
 
-            updated_at: new Date().toISOString()
+            console.log('✅ ES update result:', resp.result); // updated / noop / created
+            } catch (esErr) {
+            console.error('❌ ELK Update Error:', esErr?.meta?.body?.error || esErr);
             }
-        });
-        } catch (esErr) {
-        console.error('ELK Update Error:', esErr);
-        }
+
 
             return success(res, { imageUrls: finalImageUrls }, '수정 완료되었습니다.');
     } catch (error) {
