@@ -18,6 +18,36 @@ const validateTimeFormat = (time) => {
 };
 
 /**
+ * elk update util
+ */
+const calculateSortFields = (endDateISO) => {
+    if (!endDateISO) {
+        return { sort_group: 3, sort_end: null }; // 상시
+    }
+
+    const now = Date.now(); // UTC ms
+    const end = new Date(endDateISO).getTime(); // UTC ms
+
+    // KST 오늘 00:00 / 23:59:59 → UTC 환산
+    const kstNow = now + 9 * 60 * 60 * 1000;
+    const kstTodayStart =
+        new Date(new Date(kstNow).setHours(0, 0, 0, 0)).getTime()
+        - 9 * 60 * 60 * 1000;
+    const kstTodayEnd = kstTodayStart + 24 * 60 * 60 * 1000 - 1;
+
+    if (end < now) {
+        return { sort_group: 2, sort_end: null }; // 마감
+    }
+
+    if (end >= kstTodayStart && end <= kstTodayEnd) {
+        return { sort_group: 0, sort_end: end }; // 오늘 마감
+    }
+
+    return { sort_group: 1, sort_end: null }; // 미래
+};
+
+
+/**
  * [Helper] ImgBB 이미지 업로드 함수
  */
 /*const uploadToImgBB = async (fileBuffer) => {
@@ -228,33 +258,46 @@ exports.createPost = async (req, res) => {
 
         // [7] ELK 실시간 인덱싱 (수정된 toEsDate 사용)
         try {
+            const esEndDate = toEsDate(finalEndDate);
+            const { sort_group, sort_end } = calculateSortFields(esEndDate);
+
             await esClient.index({
                 index: 'boards',
                 id: newBoardId.toString(),
-                refresh: true, // 즉시 검색 반영 옵션
+                refresh: true,
                 document: {
                     id: newBoardId,
-                    user_id, 
+                    user_id,
                     host_type: req.user.user_type,
-                    participation_type, 
-                    title, 
-                    topics: topicList, 
+                    participation_type,
+                    title,
+                    topics: topicList,
                     content,
-                    // [핵심] 여기서 문자열을 넘기면 toEsDate가 KST로 변환해줌
+
                     start_date: toEsDate(finalStartDate),
-                    end_date: toEsDate(finalEndDate),
+                    end_date: esEndDate,
+
                     is_start_time_set,
                     is_end_time_set,
                     region: isOfflineEvent ? region : null,
                     district: isOfflineEvent ? district : null,
                     link: link || null,
+
                     is_verified: false,
                     ai_verified: !!aiVerified,
+
                     suggest: buildSuggestInput(title, topics),
                     thumbnail: imageUrls.length > 0 ? imageUrls[0] : null,
-                    created_at: toEsDate(new Date()) // 생성일은 현재 시간이므로 그대로
+
+                    // ✅🔥 이 두 줄이 핵심
+                    sort_group,
+                    sort_end,
+
+                    created_at: new Date().toISOString()
                 }
             });
+
+
             console.log(`✅ ELK Indexing Success: ID ${newBoardId}`);
         } catch (esErr) { 
             console.error('❌ ELK Indexing Error:', esErr.meta?.body?.error || esErr.message); 
@@ -364,23 +407,42 @@ exports.updatePost = async (req, res) => {
 
         // [ELK Update]
         try {
-            await esClient.update({
-                index: 'boards', 
-                id: id.toString(),
+            const esEndDate = toEsDate(finalEndDate);
+            const { sort_group, sort_end } = calculateSortFields(esEndDate);
+
+            await esClient.index({
+                index: 'boards',
+                id: newBoardId.toString(),
                 refresh: true,
-                doc: { 
-                    participation_type, title, topics: topicList, content, 
-                    // [핵심] 여기서 문자열을 넘기면 toEsDate가 KST로 변환해줌
+                document: {
+                    id: newBoardId,
+                    user_id,
+                    host_type: req.user.user_type,
+                    participation_type,
+                    title,
+                    topics: topicList,
+                    content,
+
                     start_date: toEsDate(finalStartDate),
-                    end_date: toEsDate(finalEndDate),
+                    end_date: esEndDate,
+
                     is_start_time_set,
                     is_end_time_set,
                     region: isOfflineEvent ? region : null,
                     district: isOfflineEvent ? district : null,
-                    ai_verified: !!existingAiVerified,
+                    link: link || null,
+
+                    is_verified: false,
+                    ai_verified: !!aiVerified,
+
                     suggest: buildSuggestInput(title, topics),
-                    thumbnail: finalImageUrls.length > 0 ? finalImageUrls[0] : null,
-                    updated_at: toEsDate(new Date())
+                    thumbnail: imageUrls.length > 0 ? imageUrls[0] : null,
+
+                    // ✅🔥 이 두 줄이 핵심
+                    sort_group,
+                    sort_end,
+
+                    created_at: new Date().toISOString()
                 }
             });
         } catch (esErr) { console.error('ELK Update Error:', esErr); }

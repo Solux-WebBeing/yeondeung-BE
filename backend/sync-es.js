@@ -37,6 +37,72 @@ const toEsDate = (dateInput) => {
     }
 };
 
+const calcSortFields = (endDateIso) => {
+    if (!endDateIso) {
+        return {
+            sort_group: 2, // 상시
+            sort_end: 9999999999999
+        };
+    }
+
+    const now = Date.now();
+
+    // KST 기준 오늘 시작/끝 → UTC 환산
+    const kstNow = new Date(now + 9 * 60 * 60 * 1000);
+
+    const dayStart =
+        new Date(
+            kstNow.getFullYear(),
+            kstNow.getMonth(),
+            kstNow.getDate(),
+            0, 0, 0, 0
+        ).getTime() - 9 * 60 * 60 * 1000;
+
+    const dayEnd =
+        new Date(
+            kstNow.getFullYear(),
+            kstNow.getMonth(),
+            kstNow.getDate(),
+            23, 59, 59, 999
+        ).getTime() - 9 * 60 * 60 * 1000;
+
+    const end = new Date(endDateIso).getTime();
+
+    // 마감
+    if (end < now) {
+        return { sort_group: 3, sort_end: end };
+    }
+
+    // 오늘 마감
+    if (end >= dayStart && end <= dayEnd) {
+        return { sort_group: 0, sort_end: end };
+    }
+
+    // 미래
+    return { sort_group: 1, sort_end: end };
+};
+
+const buildSuggest = (title, topics) => {
+    const set = new Set();
+
+    if (title) {
+        const clean = title.replace(/[^\w\sㄱ-ㅎ가-힣]/g, ' ');
+        const words = clean.split(/\s+/).filter(w => w.length >= 2);
+
+        words.forEach(w => set.add(w));
+        for (let i = 0; i < words.length - 1; i++) {
+            set.add(`${words[i]} ${words[i + 1]}`);
+        }
+        set.add(title.trim());
+    }
+
+    if (topics) {
+        topics.forEach(t => set.add(t));
+    }
+
+    return Array.from(set);
+};
+
 
 async function sync() {
     let connection;
@@ -100,16 +166,18 @@ async function sync() {
                     ai_verified: !!doc.ai_verified,
                     thumbnail: doc.thumbnail || null,
                     suggest: {
-                        input: Array.from(suggestSet).filter(Boolean),
+                        input: buildSuggest(doc.title, topicArray),
                         weight: 10
                     },
                     // [수정된 함수 적용] 9시간 오차를 바로잡음
-                    start_date: toEsDate(doc.start_date),
-                    end_date: toEsDate(doc.end_date),
-                    is_start_time_set: !!doc.is_start_time_set,
-                    is_end_time_set: !!doc.is_end_time_set,
+                    start_date: startDateIso,
+                    end_date: endDateIso,
                     created_at: toEsDate(doc.created_at),
-                    updated_at: toEsDate(doc.updated_at)
+                    updated_at: toEsDate(doc.updated_at),
+
+                    // 🔥 정렬 필드 (가장 중요)
+                    sort_group,
+                    sort_end
                 }
             ];
         });

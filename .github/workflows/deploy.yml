@@ -81,11 +81,6 @@ jobs:
             echo "Waiting for app to start..."
             sleep 60 # 앱이 구동되고 DB/ES와 연결될 시간을 줌 (사양에 따라 조절)
 
-            echo "Initializing Elasticsearch..."
-            sudo docker exec yeondeung-app npm run es:init
-            
-            echo "Syncing Data to Elasticsearch..."
-            sudo docker exec yeondeung-app npm run es:sync
             
             # 4. 미사용 오래된 이미지 정리
             sudo docker image prune -f
