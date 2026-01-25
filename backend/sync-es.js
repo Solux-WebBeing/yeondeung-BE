@@ -137,6 +137,10 @@ async function sync() {
                 ? doc.topics.split(',').map(t => t.trim()).filter(Boolean) 
                 : [];
 
+            const startDateIso = toEsDate(doc.start_date);
+            const endDateIso   = toEsDate(doc.end_date);
+            const { sort_group, sort_end } = calcSortFields(endDateIso);
+/*
             const suggestSet = new Set();
             if (doc.title) {
                 const cleanTitle = doc.title.replace(/[^\w\sㄱ-ㅎ가-힣]/g, ' ');
@@ -148,7 +152,7 @@ async function sync() {
                 suggestSet.add(doc.title.trim());
             }
             topicArray.forEach(t => suggestSet.add(t));
-
+*/
             return [
                 { index: { _index: INDEX_NAME, _id: doc.id.toString() } },
                 {
