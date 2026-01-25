@@ -114,54 +114,46 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
         const totalCount = cheerMap[post.id] || 0;
         const specificInterestCount = (cheererInterestMap[post.id] && cheererInterestMap[post.id][displayTopic]) || 0;
         // D-Day UI 계산 (KST 강제 보정, 라이브러리 없이)
-        // D-Day UI 계산 (KST 강제 보정, 라이브러리 없이)
         let dDay = "상시";
         let isTodayEnd = false;
 
         if (post.end_date) {
-            // 🔥 한국 현재 시간 만들기 (KST)
-            const now = new Date();
-            const nowKST = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+        // 1) 비교는 무조건 UTC ms로
+        const nowUtcMs = Date.now();
 
-            // 🔥 end_date 문자열을 KST 기준으로 안전 파싱
-            // 예: "2026-01-24 15:00" → "2026-01-24T15:00:00"
-            let endStr = post.end_date;
-            if (typeof endStr === "string" && endStr.includes(" ")) {
-                endStr = endStr.replace(" ", "T");
-                if (endStr.length === 16) endStr += ":00"; // 초 없으면 추가
-            }
-            const endDate = new Date(endStr);
+        // end_date 파싱: ES ISO(Z)면 그대로 OK
+        // (혹시 "YYYY-MM-DD HH:mm:ss" 같이 들어오면 KST로 해석해서 UTC로 변환)
+        let endUtcMs;
+        if (typeof post.end_date === "string" && post.end_date.includes(" ") && !post.end_date.includes("T")) {
+            const kstIso = post.end_date.replace(" ", "T") + "+09:00";
+            endUtcMs = new Date(kstIso).getTime();
+        } else {
+            endUtcMs = new Date(post.end_date).getTime();
+        }
 
-            // 🔴 이미 시간이 지난 경우 → 무조건 마감
-            if (endDate.getTime() < nowKST.getTime()) {
-                dDay = "마감";
-                isTodayEnd = false;
+        // 2) 마감 여부(시간) 판정: UTC vs UTC
+        if (endUtcMs < nowUtcMs) {
+            dDay = "마감";
+            isTodayEnd = false;
+        } else {
+            // 3) "오늘" 경계만 KST 기준으로 계산 (UTC로 환산된 값)
+            const kstNowMs = nowUtcMs + 9 * 60 * 60 * 1000;
+            const kstStartMs = kstNowMs - (kstNowMs % (24 * 60 * 60 * 1000));
+            const kstEndMs = kstStartMs + (24 * 60 * 60 * 1000) - 1;
+
+            // end도 KST ms로 올려서 "오늘"인지 판정
+            const endKstMs = endUtcMs + 9 * 60 * 60 * 1000;
+
+            if (endKstMs >= kstStartMs && endKstMs <= kstEndMs) {
+            dDay = "D-0";
+            isTodayEnd = true;
             } else {
-                // 날짜 단위 D-Day 계산 (KST 기준)
-                const todayMidnight = new Date(
-                    nowKST.getFullYear(),
-                    nowKST.getMonth(),
-                    nowKST.getDate(),
-                    0, 0, 0, 0
-                ).getTime();
-
-                const endMidnight = new Date(
-                    endDate.getFullYear(),
-                    endDate.getMonth(),
-                    endDate.getDate(),
-                    0, 0, 0, 0
-                ).getTime();
-
-                const diffDays = Math.ceil((endMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
-
-                if (diffDays === 0) {
-                    dDay = "D-0";
-                    isTodayEnd = true;
-                } else {
-                    dDay = `D-${diffDays}`;
-                    isTodayEnd = false;
-                }
+            // 날짜 단위 D-N 계산도 KST 기준으로
+            const diffDays = Math.ceil((endKstMs - kstStartMs) / (24 * 60 * 60 * 1000));
+            dDay = `D-${diffDays}`;
+            isTodayEnd = false;
             }
+        }
         }
 
 
