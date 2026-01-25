@@ -227,8 +227,9 @@ const getSortParams = () => {
 // [핵심 정렬 로직]
 const commonSort = [
   { "sort_group": { "order": "asc", "missing": 2 } },
-  { "sort_end":   { "order": "asc", "missing": "_last" } },
-  { "created_at": { "order": "desc", "missing": "_last" } }
+  { "created_at": { "order": "desc", "missing": "_last" } },
+  { "sort_end":   { "order": "asc", "missing": "_last" } }
+  
 ];
 
 
