@@ -114,48 +114,63 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
         const totalCount = cheerMap[post.id] || 0;
         const specificInterestCount = (cheererInterestMap[post.id] && cheererInterestMap[post.id][displayTopic]) || 0;
         // D-Day UI 계산 (KST 강제 보정, 라이브러리 없이)
+        // D-Day UI 계산 (UTC Epoch Shifting 방식)
         let dDay = "상시";
         let isTodayEnd = false;
 
         if (post.end_date) {
-        // 1) 비교는 무조건 UTC ms로
-        const nowUtcMs = Date.now();
+            // 1. 현재 시간 (순수 UTC 밀리초)
+            const nowUtcMs = Date.now();
 
-        // end_date 파싱: ES ISO(Z)면 그대로 OK
-        // (혹시 "YYYY-MM-DD HH:mm:ss" 같이 들어오면 KST로 해석해서 UTC로 변환)
-        let endUtcMs;
-        if (typeof post.end_date === "string" && post.end_date.includes(" ") && !post.end_date.includes("T")) {
-            const kstIso = post.end_date.replace(" ", "T") + "+09:00";
-            endUtcMs = new Date(kstIso).getTime();
-        } else {
-            endUtcMs = new Date(post.end_date).getTime();
-        }
-
-        // 2) 마감 여부(시간) 판정: UTC vs UTC
-        if (endUtcMs < nowUtcMs) {
-            dDay = "마감";
-            isTodayEnd = false;
-        } else {
-            // 3) "오늘" 경계만 KST 기준으로 계산 (UTC로 환산된 값)
-            const kstNowMs = nowUtcMs + 9 * 60 * 60 * 1000;
-            const kstStartMs = kstNowMs - (kstNowMs % (24 * 60 * 60 * 1000));
-            const kstEndMs = kstStartMs + (24 * 60 * 60 * 1000) - 1;
-
-            // end도 KST ms로 올려서 "오늘"인지 판정
-            const endKstMs = endUtcMs + 9 * 60 * 60 * 1000;
-
-            if (endKstMs >= kstStartMs && endKstMs <= kstEndMs) {
-            dDay = "D-0";
-            isTodayEnd = true;
+            // 2. 마감 시간 파싱 (KST 기준 해석 → UTC 밀리초 변환)
+            let endUtcMs;
+            // "YYYY-MM-DD HH:mm:ss" 형태 처리 (공백 -> T, +09:00 부착)
+            if (typeof post.end_date === "string" && post.end_date.includes(" ")) {
+                const kstIso = post.end_date.replace(" ", "T") + "+09:00";
+                endUtcMs = new Date(kstIso).getTime();
             } else {
-            // 날짜 단위 D-N 계산도 KST 기준으로
-            const diffDays = Math.ceil((endKstMs - kstStartMs) / (24 * 60 * 60 * 1000));
-            dDay = `D-${diffDays}`;
-            isTodayEnd = false;
+                // "YYYY-MM-DD" 형태 처리 (자정 마감으로 간주하고 싶다면 +09:00 붙여야 함)
+                // 단순히 new Date(str)하면 UTC 00:00(한국 09:00)이 될 수 있음
+                // 안전하게 날짜만 있는 경우도 KST 자정(00:00)으로 해석하려면:
+                const dateStr = post.end_date.length === 10 ? post.end_date + "T00:00:00" : post.end_date;
+                // ISO 포맷이 아니거나 시간대 없으면 강제 KST 간주
+                if (!dateStr.includes("Z") && !dateStr.includes("+")) {
+                    endUtcMs = new Date(dateStr + "+09:00").getTime();
+                } else {
+                    endUtcMs = new Date(dateStr).getTime();
+                }
+            }
+
+            // 3. 절대 시간 비교 (마감 여부)
+            if (endUtcMs < nowUtcMs) {
+                dDay = "마감";
+                isTodayEnd = false;
+            } else {
+                // 4. 날짜 경계 계산 (Epoch Shifting)
+                // UTC 타임스탬프에 9시간(ms)을 더해 "가상의 KST 타임스탬프"를 만듦
+                const KR_OFFSET = 9 * 60 * 60 * 1000;
+                const ONE_DAY = 24 * 60 * 60 * 1000;
+
+                const kstNowMs = nowUtcMs + KR_OFFSET;
+                const endKstMs = endUtcMs + KR_OFFSET;
+
+                // "KST 기준 오늘 자정" 구하기
+                // (가상 타임스탬프에서 24시간으로 나눈 나머지를 빼면 정확히 00:00에 떨어짐)
+                const kstTodayStart = kstNowMs - (kstNowMs % ONE_DAY);
+                
+                // D-Day 계산
+                // (마감시각 - 오늘자정) / 24시간 -> 내림(Floor) 처리
+                const diffDays = Math.floor((endKstMs - kstTodayStart) / ONE_DAY);
+
+                if (diffDays === 0) {
+                    dDay = "D-0";
+                    isTodayEnd = true;
+                } else {
+                    dDay = `D-${diffDays}`;
+                    isTodayEnd = false;
+                }
             }
         }
-        }
-
 
 
 
