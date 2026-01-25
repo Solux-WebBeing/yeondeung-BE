@@ -39,48 +39,35 @@ const toEsDate = (dateInput) => {
 
 const calcSortFields = (endDateIso) => {
     if (!endDateIso) {
-        return {
-            sort_group: 2, // 상시
-            sort_end: 9999999999999
-        };
+        return { sort_group: 2, sort_end: 9999999999999 };
     }
 
-    const now = Date.now();
+    const nowUtc = Date.now();
 
-    // KST 기준 오늘 시작/끝 → UTC 환산
-    const kstNow = new Date(now + 9 * 60 * 60 * 1000);
+    // KST 기준 오늘 날짜 계산
+    const nowKst = new Date(nowUtc + 9 * 60 * 60 * 1000);
 
-    const dayStart =
-        new Date(
-            kstNow.getFullYear(),
-            kstNow.getMonth(),
-            kstNow.getDate(),
-            0, 0, 0, 0
-        ).getTime() - 9 * 60 * 60 * 1000;
+    const y = nowKst.getUTCFullYear();
+    const m = nowKst.getUTCMonth();
+    const d = nowKst.getUTCDate();
 
-    const dayEnd =
-        new Date(
-            kstNow.getFullYear(),
-            kstNow.getMonth(),
-            kstNow.getDate(),
-            23, 59, 59, 999
-        ).getTime() - 9 * 60 * 60 * 1000;
+    // 🔥 KST 00:00 / 23:59:59 → UTC 타임스탬프
+    const dayStartUtc = Date.UTC(y, m, d, 0, 0, 0) - 9 * 60 * 60 * 1000;
+    const dayEndUtc   = Date.UTC(y, m, d, 23, 59, 59, 999) - 9 * 60 * 60 * 1000;
 
     const end = new Date(endDateIso).getTime();
 
-    // 마감
-    if (end < now) {
-        return { sort_group: 3, sort_end: end };
+    if (end < nowUtc) {
+        return { sort_group: 3, sort_end: end }; // 마감
     }
 
-    // 오늘 마감
-    if (end >= dayStart && end <= dayEnd) {
-        return { sort_group: 0, sort_end: end };
+    if (end >= dayStartUtc && end <= dayEndUtc) {
+        return { sort_group: 0, sort_end: end }; // 오늘 종료
     }
 
-    // 미래
-    return { sort_group: 1, sort_end: end };
+    return { sort_group: 1, sort_end: end }; // 미래
 };
+
 
 const buildSuggest = (title, topics) => {
     const set = new Set();

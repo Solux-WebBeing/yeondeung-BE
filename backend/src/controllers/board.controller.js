@@ -21,30 +21,28 @@ const validateTimeFormat = (time) => {
  * elk update util
  */
 const calculateSortFields = (endDateISO) => {
-    if (!endDateISO) {
-        return { sort_group: 3, sort_end: null }; // 상시
-    }
+  // 상시
+  if (!endDateISO) return { sort_group: 2, sort_end: 9223372036854775807 };
 
-    const now = Date.now(); // UTC ms
-    const end = new Date(endDateISO).getTime(); // UTC ms
+  const now = Date.now(); // UTC ms
+  const end = new Date(endDateISO).getTime();
 
-    // KST 오늘 00:00 / 23:59:59 → UTC 환산
-    const kstNow = now + 9 * 60 * 60 * 1000;
-    const kstTodayStart =
-        new Date(new Date(kstNow).setHours(0, 0, 0, 0)).getTime()
-        - 9 * 60 * 60 * 1000;
-    const kstTodayEnd = kstTodayStart + 24 * 60 * 60 * 1000 - 1;
+  // KST 오늘 범위(UTC로 환산)
+  const kstNow = now + 9 * 60 * 60 * 1000;
+  const d = new Date(kstNow);
+  const kstTodayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0) - 9*60*60*1000;
+  const kstTodayEnd = kstTodayStart + 24*60*60*1000 - 1;
 
-    if (end < now) {
-        return { sort_group: 2, sort_end: null }; // 마감
-    }
+  // 마감
+  if (end < now) return { sort_group: 3, sort_end: end };
 
-    if (end >= kstTodayStart && end <= kstTodayEnd) {
-        return { sort_group: 0, sort_end: end }; // 오늘 마감
-    }
+  // 오늘 마감
+  if (end >= kstTodayStart && end <= kstTodayEnd) return { sort_group: 0, sort_end: end };
 
-    return { sort_group: 1, sort_end: null }; // 미래
+  // 미래
+  return { sort_group: 1, sort_end: end };
 };
+
 
 
 /**
@@ -440,7 +438,7 @@ exports.updatePost = async (req, res) => {
 
                 ai_verified: !!existingAiVerified,
 
-                suggest: buildSuggestInput(title, topicList),
+                suggest: buildSuggestInput(title, topics),
                 thumbnail: finalImageUrls.length > 0 ? finalImageUrls[0] : null,
 
                 sort_group,
