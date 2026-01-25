@@ -58,34 +58,51 @@ async function initIndex() {
               user_id: { type: "integer" },
               host_type: { type: "keyword" },
               participation_type: { type: "keyword" },
+
               title: { 
-                type: "text", 
+                type: "text",
                 analyzer: "nori_analyzer",
-                fields: { partial: { type: "text", analyzer: "partial_analyzer" } }
+                fields: {
+                  partial: { type: "text", analyzer: "partial_analyzer" }
+                }
               },
+
+              // 🔥 FIX 1: completion suggest
               suggest: {
                 type: "completion",
                 analyzer: "suggest_analyzer",
                 preserve_separators: true,
                 preserve_position_increments: true
               },
+
               topics: { type: "keyword" },
+
               content: { 
-                type: "text", 
+                type: "text",
                 analyzer: "nori_analyzer",
-                fields: { partial: { type: "text", analyzer: "partial_analyzer" } }
+                fields: {
+                  partial: { type: "text", analyzer: "partial_analyzer" }
+                }
               },
+
               region: { type: "keyword" },
               district: { type: "keyword" },
               link: { type: "keyword" },
+
               is_verified: { type: "boolean" },
               ai_verified: { type: "boolean" },
+
               start_date: dateFieldConfig,
               end_date: dateFieldConfig,
               created_at: dateFieldConfig,
-              updated_at: dateFieldConfig
+              updated_at: dateFieldConfig,
+
+              // 🔥 FIX 2: 정렬 필드
+              sort_group: { type: "integer" },
+              sort_end: { type: "long" }
             }
           }
+
         }
       });
       console.log("✅ 인덱스 신규 생성 완료!");
