@@ -28,16 +28,10 @@ const calculateSortFields = (endDateISO) => {
   const end = new Date(endDateISO).getTime();
 
   // KST 오늘 범위(UTC로 환산)
- const kstDateStr = new Date(
-        nowUtc + 9 * 60 * 60 * 1000
-    ).toISOString().slice(0, 10); // YYYY-MM-DD (KST 기준)
-
-    // ✅ 그 날짜의 KST 00:00 / 23:59:59를 UTC ms로 계산
-    const kstTodayStartUtc =
-        Date.parse(`${kstDateStr}T00:00:00+09:00`);
-    const kstTodayEndUtc =
-        Date.parse(`${kstDateStr}T23:59:59+09:00`);
-
+  const kstNow = now + 9 * 60 * 60 * 1000;
+  const d = new Date(kstNow);
+  const kstTodayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0) - 9*60*60*1000;
+  const kstTodayEnd = kstTodayStart + 24*60*60*1000 - 1;
 
   // 마감
   if (end < now) return { sort_group: 3, sort_end: end };
@@ -48,6 +42,7 @@ const calculateSortFields = (endDateISO) => {
   // 미래
   return { sort_group: 1, sort_end: end };
 };
+
 
 
 
