@@ -86,13 +86,20 @@ async function enrichDataWithMySQL(results, currentUserId = null) {
     }
 
     const formatForUI = (dateStr, isTimeSet) => {
-        if (!dateStr) return "";
-        const d = new Date(dateStr);
-        const pad = (n) => n.toString().padStart(2, '0');
-        const datePart = `${d.getFullYear()}. ${pad(d.getMonth() + 1)}. ${pad(d.getDate())}`;
-        const timePart = isTimeSet ? ` ${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
-        return `${datePart}${timePart}`;
-    };
+    if (!dateStr) return "";
+
+    // 🔥 ES에서 오는 값은 UTC → KST로 명시 변환
+    const utc = new Date(dateStr);
+    const kst = new Date(utc.getTime() + 9 * 60 * 60 * 1000);
+
+    const pad = (n) => n.toString().padStart(2, '0');
+
+    const datePart = `${kst.getFullYear()}. ${pad(kst.getMonth() + 1)}. ${pad(kst.getDate())}`;
+    const timePart = isTimeSet ? ` ${pad(kst.getHours())}:${pad(kst.getMinutes())}` : '';
+
+    return `${datePart}${timePart}`;
+};
+
 
     return results.map(post => {
         const currentTopics = boardTopicsMap[post.id] || [];

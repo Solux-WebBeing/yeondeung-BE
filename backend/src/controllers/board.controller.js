@@ -104,25 +104,30 @@ const buildSuggestInput = (title, topics) => {
  * MySQL 저장용 문자열("2026-01-24 18:00:00")이 들어오면
  * 이를 KST("2026-01-24T18:00:00+09:00")로 해석하여 정확한 ISO 표준으로 변환
  */
+// MySQL "YYYY-MM-DD HH:mm:ss" 는 'KST 기준'이라고 가정
 const toEsDate = (dateStr) => {
     if (!dateStr) return null;
-    try {
-        // 이미 Date 객체라면 바로 ISO 변환
-        if (dateStr instanceof Date) return dateStr.toISOString();
 
-        // "YYYY-MM-DD HH:mm:ss" 형식의 문자열이라면 KST(+09:00) 강제 적용
-        if (typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T')) {
-            const kstIso = dateStr.replace(' ', 'T') + '+09:00';
-            return new Date(kstIso).toISOString();
+    try {
+        // 이미 Date 객체
+        if (dateStr instanceof Date) {
+            return dateStr.toISOString(); // UTC
         }
 
-        // 그 외(이미 ISO 형식이거나 UTC 포맷)는 그대로 변환
+        // "2026-02-02 00:00:00" → KST 기준으로 해석 후 UTC 변환
+        if (typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T')) {
+            const kst = dateStr.replace(' ', 'T') + '+09:00'; 
+            return new Date(kst).toISOString();  // 🔥 정확한 UTC
+        }
+
+        // 이미 ISO면 그대로
         return new Date(dateStr).toISOString();
-    } catch (e) { 
+    } catch (e) {
         console.error("Date Parsing Error:", e);
-        return null; 
+        return null;
     }
 };
+
 
 /**
  * 1. 게시글 생성 (Create)
@@ -213,6 +218,13 @@ exports.createPost = async (req, res) => {
         });
 
         await connection.commit();
+
+        // 게시글 생성 or 수정 API 안
+        console.log("===== DATE SAVE CHECK =====");
+        console.log("MySQL raw end_date:", end_date);
+        console.log("ES save end_date:", toEsDate(end_date));
+        console.log("===========================");
+
 
         // [7] ELK 실시간 인덱싱 (수정된 toEsDate 사용)
         try {
@@ -342,6 +354,13 @@ exports.updatePost = async (req, res) => {
         }
 
         await connection.commit();
+
+        // 게시글 생성 or 수정 API 안
+        console.log("===== DATE SAVE CHECK =====");
+        console.log("MySQL raw end_date:", end_date);
+        console.log("ES save end_date:", toEsDate(end_date));
+        console.log("===========================");
+
 
         // [ELK Update]
         try {
