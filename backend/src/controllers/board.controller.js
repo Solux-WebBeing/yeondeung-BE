@@ -39,7 +39,7 @@ const calculateSortFields = (endDateISO) => {
   // 오늘 마감
   if (end >= kstTodayStart && end <= kstTodayEnd) return { sort_group: 0, sort_end: end };
 
-  // 미래
+  // 미래``
   return { sort_group: 1, sort_end: end };
 };
 
