@@ -142,14 +142,15 @@ async function reclassifySortGroups() {
 }
 
 // ✅ 5분마다 (원하면 "0 * * * *" 매시 정각으로)
-cron.schedule("*/5 * * * *", async () => {
-  console.log("\n[cron] start", new Date().toISOString());
-  await reclassifySortGroups();
-  console.log("[cron] end", new Date().toISOString());
-});
+
+//cron.schedule("*/5 * * * *", async () => {
+//  console.log("\n[cron] start", new Date().toISOString());
+//  await reclassifySortGroups();
+//  console.log("[cron] end", new Date().toISOString());
+//});
 
 // 로컬에서 한번만 돌리고 종료하고 싶으면 주석 해제
-// (async () => {
-//   await reclassifySortGroups();
-//   process.exit(0);
-// })();
+ (async () => {
+   await reclassifySortGroups();
+   process.exit(0);
+ })();
