@@ -39,9 +39,22 @@ const buildScript = (group) => ({
   source: `
     ctx._source.sort_group = params.group;
 
-    // sort_end는 end_date 기준 epoch millis로 통일
-    if (doc['end_date'].size() != 0) {
-      ctx._source.sort_end = doc['end_date'].value.toInstant().toEpochMilli();
+    // sort_end는 end_date 기준 epoch millis로 통일 (updateByQuery에서는 doc[] 사용 불가)
+    if (ctx._source.containsKey('end_date') && ctx._source.end_date != null) {
+      def v = ctx._source.end_date;
+
+      // end_date가 숫자(epoch millis)인 경우
+      if (v instanceof Number) {
+        ctx._source.sort_end = ((Number)v).longValue();
+
+      // end_date가 ISO 문자열(예: 2026-02-20T14:00:00.000Z)인 경우
+      } else if (v instanceof String) {
+        ctx._source.sort_end = java.time.Instant.parse((String)v).toEpochMilli();
+
+      // 기타 예외 케이스는 뒤로 보냄
+      } else {
+        ctx._source.sort_end = 9223372036854775807L;
+      }
     } else {
       ctx._source.sort_end = 9223372036854775807L; // 상시(없음)는 맨 뒤로
     }
@@ -78,13 +91,16 @@ async function reclassifySortGroups() {
   console.log("[range] kstToday(UTC) start=", utcStartIso, "end=", utcEndIso);
 
   // 1) 상시(2): end_date 없음
+  // 1) 상시(2): end_date 없음
   await updateGroup({
     name: "ALWAYS(2)",
     group: 2,
     query: {
       bool: {
-        must_not: [{ exists: { field: "end_date" } }],
-        must_not: [{ term: { sort_group: 2 } }],
+        must_not: [
+          { exists: { field: "end_date" } },
+          { term: { sort_group: 2 } },
+        ],
       },
     },
   });
